@@ -7,7 +7,7 @@
  * Falls back to embedded mock data when Supabase is unavailable.
  */
 
-import { supabase } from '../config/supabase';
+import { supabase } from '../config/supabase.js';
 
 // ─────────────────────────────────────────────
 // MOCK FALLBACK DATA
@@ -214,10 +214,10 @@ const MOCK_PROVIDERS = [
 ];
 
 const MOCK_TIPS = [
-  { icon: 'bulb-outline',         text: 'Compare plans annually — your health needs change over time.' },
+  { icon: 'bulb-outline', text: 'Compare plans annually — your health needs change over time.' },
   { icon: 'document-text-outline', text: 'Always disclose pre-existing conditions to avoid claim rejection.' },
-  { icon: 'cash-outline',          text: 'Higher deductible = lower premium. Choose wisely based on your risk.' },
-  { icon: 'shield-outline',        text: "Check if your preferred hospital is in the insurer's network." },
+  { icon: 'cash-outline', text: 'Higher deductible = lower premium. Choose wisely based on your risk.' },
+  { icon: 'shield-outline', text: "Check if your preferred hospital is in the insurer's network." },
 ];
 
 // ─────────────────────────────────────────────
@@ -226,16 +226,100 @@ const MOCK_TIPS = [
 
 export const PROVIDER_TYPE_META = {
   government: { label: 'Government', color: '#065F46', colorLight: '#D1FAE5', badgeBg: '#DCFCE7', badgeColor: '#15803D', icon: 'shield-checkmark' },
-  private:    { label: 'Private',    color: '#6D28D9', colorLight: '#EDE9FE', badgeBg: '#EDE9FE', badgeColor: '#6D28D9', icon: 'briefcase'        },
-  psu:        { label: 'PSU',        color: '#B45309', colorLight: '#FEF3C7', badgeBg: '#FEF3C7', badgeColor: '#B45309', icon: 'ribbon'            },
+  private: { label: 'Private', color: '#6D28D9', colorLight: '#EDE9FE', badgeBg: '#EDE9FE', badgeColor: '#6D28D9', icon: 'briefcase' },
+  psu: { label: 'PSU', color: '#B45309', colorLight: '#FEF3C7', badgeBg: '#FEF3C7', badgeColor: '#B45309', icon: 'ribbon' },
 };
+
+// ─────────────────────────────────────────────
+// REMOTE FETCH FUNCTIONS (Supabase)
+// ─────────────────────────────────────────────
+
+/**
+ * Generic helper to run a Supabase query and fall back to mock data.
+ */
+async function safeQuery(queryPromise, fallback) {
+  if (!supabase) return fallback;
+  const { data, error } = await queryPromise;
+  if (error) {
+    console.warn('Supabase query failed, falling back to mock data:', error);
+    return fallback;
+  }
+  return data;
+}
+
+/** Fetch all insurance providers from Supabase. */
+export async function fetchProviders() {
+  return safeQuery(supabase.from('insurance_providers').select('*').order('provider_name'), MOCK_PROVIDERS);
+}
+
+/** Fetch plans for a given provider. */
+export async function fetchPlansByProvider(providerId) {
+  return safeQuery(
+    supabase.from('insurance_plans').select('*').eq('provider_id', providerId),
+    []
+  );
+}
+
+/** Fetch pricing details for a plan. */
+export async function fetchPricingByPlan(planId) {
+  return safeQuery(
+    supabase.from('plan_pricing').select('*').eq('plan_id', planId),
+    []
+  );
+}
+
+/** Fetch benefits for a plan. */
+export async function fetchBenefitsByPlan(planId) {
+  return safeQuery(
+    supabase.from('plan_benefits').select('*').eq('plan_id', planId),
+    []
+  );
+}
+
+/** Fetch restrictions for a plan. */
+export async function fetchRestrictionsByPlan(planId) {
+  return safeQuery(
+    supabase.from('plan_restrictions').select('*').eq('plan_id', planId),
+    []
+  );
+}
+
+/**
+ * Retrieve a full provider object with nested plans, each enriched with pricing,
+ * benefits and restrictions.
+ */
+export async function getProviderDetail(providerId) {
+  const providers = await fetchProviders();
+  console.log(providers);
+  const provider = providers.find(p => p.provider_id === providerId);
+  if (!provider) return null;
+
+  const plans = await fetchPlansByProvider(providerId);
+  const enrichedPlans = await Promise.all(
+    plans.map(async plan => {
+      const [pricing, benefits, restrictions] = await Promise.all([
+        fetchPricingByPlan(plan.plan_id),
+        fetchBenefitsByPlan(plan.plan_id),
+        fetchRestrictionsByPlan(plan.plan_id),
+      ]);
+      return { ...plan, pricing: pricing[0] || {}, benefits, restrictions };
+    })
+  );
+
+  return { ...provider, plans: enrichedPlans };
+}
 
 // ─────────────────────────────────────────────
 // HELPER – SUPABASE JOIN QUERY
 // ─────────────────────────────────────────────
 
 async function fetchProvidersFromSupabase() {
-  if (!supabase) return null;
+  if (!supabase) {
+    console.warn(
+      '[insuranceService] Supabase client is not initialized. Please ensure EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY are configured in your .env file.'
+    );
+    return null;
+  }
 
   try {
     // 1. Fetch providers
@@ -243,32 +327,51 @@ async function fetchProvidersFromSupabase() {
       .from('insurance_providers')
       .select('*')
       .order('provider_name');
-    if (pErr || !providers?.length) return null;
 
-    // 2. Fetch plans
+    if (pErr) {
+      console.error('[insuranceService] Error fetching insurance_providers:', pErr);
+      return null;
+    }
+
+    if (!providers || providers.length === 0) {
+      console.warn('[insuranceService] Supabase returned 0 insurance_providers. Check table data and Row Level Security (RLS) policies.');
+      return null;
+    }
+
+    // 2. Fetch plans (optional - providers can still be displayed if plans are not yet added)
     const { data: plans, error: plErr } = await supabase
       .from('insurance_plans')
       .select('*');
-    if (plErr) return null;
 
-    const planIds = (plans || []).map(p => p.plan_id);
+    if (plErr) {
+      console.warn('[insuranceService] Could not fetch insurance_plans (or table empty):', plErr.message);
+    }
 
-    // 3. Fetch benefits, pricing, restrictions in parallel
-    const [bRes, prRes, rRes] = await Promise.all([
-      supabase.from('plan_benefits').select('*').in('plan_id', planIds),
-      supabase.from('plan_pricing').select('*').in('plan_id', planIds),
-      supabase.from('plan_restrictions').select('*').in('plan_id', planIds),
-    ]);
+    const planList = plans || [];
+    const planIds = planList.map(p => p.plan_id).filter(Boolean);
 
-    const benefits     = bRes.data  || [];
-    const pricing      = prRes.data || [];
-    const restrictions = rRes.data  || [];
+    // 3. Fetch benefits, pricing, restrictions in parallel ONLY if planIds exist
+    let benefits = [];
+    let pricing = [];
+    let restrictions = [];
+
+    if (planIds.length > 0) {
+      const [bRes, prRes, rRes] = await Promise.all([
+        supabase.from('plan_benefits').select('*').in('plan_id', planIds),
+        supabase.from('plan_pricing').select('*').in('plan_id', planIds),
+        supabase.from('plan_restrictions').select('*').in('plan_id', planIds),
+      ]);
+
+      benefits = bRes.data || [];
+      pricing = prRes.data || [];
+      restrictions = rRes.data || [];
+    }
 
     // 4. Join data
-    const enrichedPlans = (plans || []).map(plan => ({
+    const enrichedPlans = planList.map(plan => ({
       ...plan,
-      benefits:     benefits.filter(b => b.plan_id === plan.plan_id),
-      pricing:      pricing.find(p => p.plan_id === plan.plan_id) || null,
+      benefits: benefits.filter(b => b.plan_id === plan.plan_id),
+      pricing: pricing.find(p => p.plan_id === plan.plan_id) || null,
       restrictions: restrictions.filter(r => r.plan_id === plan.plan_id),
     }));
 
@@ -277,7 +380,8 @@ async function fetchProvidersFromSupabase() {
       type: prov.type || 'private',
       plans: enrichedPlans.filter(pl => pl.provider_id === prov.provider_id),
     }));
-  } catch {
+  } catch (err) {
+    console.error('[insuranceService] Unexpected error in fetchProvidersFromSupabase:', err);
     return null;
   }
 }
@@ -287,6 +391,13 @@ async function fetchProvidersFromSupabase() {
 // ─────────────────────────────────────────────
 
 export const insuranceService = {
+  fetchProviders,
+  fetchPlansByProvider,
+  fetchPricingByPlan,
+  fetchBenefitsByPlan,
+  fetchRestrictionsByPlan,
+  getProviderDetail,
+
   /**
    * Returns full provider list with nested plans/benefits/pricing/restrictions.
    * Tries Supabase first; falls back to mock data.
@@ -327,7 +438,7 @@ export const insuranceService = {
           ...plan,
           provider_name: prov.provider_name,
           provider_type: prov.type || 'private',
-          contact_info:  prov.contact_info,
+          contact_info: prov.contact_info,
         });
       });
     });
@@ -335,5 +446,216 @@ export const insuranceService = {
     return flatPlans;
   },
 
-  getTips: () => MOCK_TIPS,
+  /**
+   * Fetch user details from Supabase (user_insurance_details or user_information_details)
+   */
+  async getUserProfile(userId = null) {
+    if (!supabase) return null;
+    try {
+      let q = supabase.from('user_insurance_details').select('*');
+      if (userId) q = q.eq('user_id', userId);
+      const { data, error } = await q.limit(1);
+      if (!error && data && data.length > 0) return data[0];
+
+      let q2 = supabase.from('user_information_details').select('*');
+      if (userId) q2 = q2.eq('user_id', userId);
+      const { data: d2, error: e2 } = await q2.limit(1);
+      if (!e2 && d2 && d2.length > 0) return d2[0];
+    } catch (e) {
+      console.warn('[insuranceService] getUserProfile notice:', e.message);
+    }
+    return null;
+  },
+
+  /**
+   * Calculates recommendation score, match percentage and rationale.
+   * Higher score = more favorable.
+   */
+  computePlanScore(plan, profiles = []) {
+    const isFamily = profiles.length > 1;
+    const pricing = plan.pricing || {};
+    const benefits = plan.benefits || [];
+    const restrictions = plan.restrictions || [];
+
+    let score = 50; // baseline
+    const reasons = [];
+    const considerations = [];
+
+    // 1. Pricing / Premium Favorability
+    const premium = Number(pricing.base_premium_amount || 0);
+    if (premium === 0) {
+      score += 35;
+      reasons.push('100% subsidized / Zero base annual premium');
+    } else if (premium <= 10000) {
+      score += 26;
+      reasons.push('Affordable premium (₹' + premium.toLocaleString('en-IN') + '/yr)');
+    } else if (premium <= 16000) {
+      score += 18;
+    } else if (premium <= 22000) {
+      score += 10;
+    } else {
+      score += 2;
+      considerations.push('Higher premium (₹' + premium.toLocaleString('en-IN') + '/yr)');
+    }
+
+    // Deductibles
+    const deductible = Number((isFamily ? pricing.family_deductible : pricing.individual_deductible) || 0);
+    if (deductible === 0) {
+      score += 8;
+      reasons.push('Zero deductible before coverage begins');
+    } else if (deductible > 4000) {
+      score -= 4;
+      considerations.push('Deductible of ₹' + deductible.toLocaleString('en-IN') + ' applies');
+    }
+
+    // 2. Benefits Coverage
+    const essentialCount = benefits.filter(b => b.is_essential).length;
+    const totalBenefits = benefits.length;
+    score += Math.min(essentialCount * 5 + totalBenefits * 2, 28);
+
+    if (essentialCount >= 3) {
+      reasons.push('Solid core coverage (' + essentialCount + ' essential benefits)');
+    }
+
+    const benefitNames = benefits.map(b => (b.benefit_name || '').toLowerCase());
+    if (benefitNames.some(b => b.includes('cashless') || b.includes('hospitalization'))) {
+      score += 5;
+      reasons.push('Comprehensive cashless hospitalization cover');
+    }
+    if (benefitNames.some(b => b.includes('restore') || b.includes('secure'))) {
+      score += 5;
+      reasons.push('Includes sum insured restoration benefit');
+    }
+
+    // 3. Network tier
+    const networkTier = (plan.network_size_tier || '').toLowerCase();
+    if (networkTier.includes('extra') || networkTier.includes('xl')) {
+      score += 10;
+      reasons.push('Extra-large hospital network');
+    } else if (networkTier.includes('large')) {
+      score += 7;
+      reasons.push('Large empanelled hospital network');
+    } else if (networkTier.includes('medium')) {
+      score += 4;
+    }
+
+    // 4. Plan Suitability for Family vs Individual
+    const planType = (plan.plan_type || '').toLowerCase();
+    if (isFamily) {
+      if (planType.includes('family') || planType.includes('floater')) {
+        score += 22;
+        reasons.push('Dedicated family floater structure');
+      } else if (planType.includes('individual/family')) {
+        score += 15;
+        reasons.push('Flexible individual & family options');
+      } else {
+        score -= 10;
+        considerations.push('Plan primarily structured for individual coverage');
+      }
+    } else {
+      if (planType.includes('individual')) {
+        score += 14;
+        reasons.push('Optimized cost and coverage for single individuals');
+      }
+    }
+
+    // 5. Health & Lifestyle Risk Assessment
+    let totalSmokers = 0;
+    let totalDrinkers = 0;
+    let seniorCount = 0;
+
+    profiles.forEach(p => {
+      if (p.is_smoker) totalSmokers++;
+      if (p.is_drinker) totalDrinkers++;
+      if (p.date_of_birth) {
+        const birth = new Date(p.date_of_birth);
+        if (!isNaN(birth.getTime())) {
+          const age = new Date().getFullYear() - birth.getFullYear();
+          if (age >= 55) seniorCount++;
+        }
+      }
+    });
+
+    const totalRisks = totalSmokers + totalDrinkers + seniorCount;
+    if (totalRisks > 0) {
+      const restrictionDesc = restrictions.map(r => (r.description || '').toLowerCase());
+      const hasLongWaiting = restrictionDesc.some(d => d.includes('3 year') || d.includes('4 year'));
+      if (hasLongWaiting) {
+        score -= 8;
+        considerations.push('Extended waiting period for pre-existing conditions');
+      } else {
+        score += 5;
+        reasons.push('Balanced waiting period policy for health conditions');
+      }
+
+      if (totalSmokers > 0 || totalDrinkers > 0) {
+        considerations.push('Lifestyle factors accounted for ' + (totalSmokers + totalDrinkers) + ' member(s)');
+      }
+    } else {
+      score += 6;
+      reasons.push('High eligibility approval rate based on healthy profile');
+    }
+
+    // Restrictions impact
+    score -= restrictions.length * 3;
+
+    // Match percentage representation (clamped 40-99%)
+    const matchPct = Math.min(Math.max(Math.round(score), 40), 99);
+
+    return {
+      score: matchPct,
+      matchPct,
+      reasons: reasons.slice(0, 3),
+      considerations: considerations.slice(0, 2),
+    };
+  },
+
+  /**
+   * Returns sorted list of plans (most favorable to least favorable).
+   * @param {object} params
+   * @param {object} params.userProfile Single person or primary policyholder details
+   * @param {Array<object>} [params.familyProfiles=[]] Family members (optional)
+   * @returns {Promise<Array<object>>}
+   */
+  async getRecommendations({ userProfile, familyProfiles = [] } = {}) {
+    const profile = userProfile || {
+      full_name: 'Policyholder',
+      date_of_birth: '1995-01-01',
+      height_cm: 170,
+      weight_kg: 68,
+      is_smoker: false,
+      is_drinker: false,
+    };
+
+    const profiles = [profile, ...familyProfiles];
+
+    let providers = await fetchProvidersFromSupabase();
+    if (!providers) providers = MOCK_PROVIDERS;
+
+    const scoredPlans = [];
+    providers.forEach(prov => {
+      (prov.plans || []).forEach(plan => {
+        const evaluation = this.computePlanScore(plan, profiles);
+        scoredPlans.push({
+          ...plan,
+          provider_name: prov.provider_name,
+          provider_type: prov.type || 'private',
+          contact_info: prov.contact_info,
+          logo_url: prov.logo_url,
+          score: evaluation.score,
+          matchPct: evaluation.matchPct,
+          reasons: evaluation.reasons,
+          considerations: evaluation.considerations,
+        });
+      });
+    });
+
+    // Sort descending by score: most favorable first
+    scoredPlans.sort((a, b) => b.score - a.score);
+    return scoredPlans;
+  },
+
+    getTips: () => MOCK_TIPS,
 };
+
+export default insuranceService;
