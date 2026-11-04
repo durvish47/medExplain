@@ -34,6 +34,16 @@ export async function signUpWithEmail(email, password) {
   return { data, error };
 }
 
+export async function signInWithEmail(email, password) {
+  if (!supabase) throw new Error('Supabase client not configured.');
+  return supabase.auth.signInWithPassword({ email, password });
+}
+
+export async function signOut() {
+  if (!supabase) throw new Error('Supabase client not configured.');
+  return supabase.auth.signOut();
+}
+
 /**
  * Initiate Google OAuth sign‑in / sign‑up flow.
  *
@@ -41,14 +51,12 @@ export async function signUpWithEmail(email, password) {
  *
  * The caller should handle the redirect URL that Supabase returns.
  */
-export async function signUpWithGoogle() {
+export async function signUpWithGoogle(redirectTo = 'medex://auth/callback') {
   if (!supabase) {
     throw new Error('Supabase client not configured.');
   }
 
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-  });
+  const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo, skipBrowserRedirect:true } });
 
   return { data, error };
 }
@@ -120,7 +128,9 @@ export async function onboardPatient(payload) {
  */
 export default {
   signUpWithEmail,
+  signInWithEmail,
   signUpWithGoogle,
+  signOut,
   onboardPatient,
 };
 

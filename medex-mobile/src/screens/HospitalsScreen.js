@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -7,8 +7,12 @@ import {
   TouchableOpacity, 
   TextInput,
   Linking,
-  Alert
+  Alert,
+  ActivityIndicator,
+  Platform,
 } from 'react-native';
+import * as Location from 'expo-location';
+import { storageService } from '../services/storageService';
 import { colors, spacing, borderRadius } from '../theme/colors';
 import { Header } from '../components/Header';
 import { HospitalCard } from '../components/HospitalCard';
@@ -21,18 +25,50 @@ export const HospitalsScreen = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('distance'); // 'distance', 'rating'
   const [emergencyOnly, setEmergencyOnly] = useState(false);
+  const [mode, setMode] = useState('nearby');
+  const [location, setLocation] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [directoryState, setDirectoryState] = useState('Tamil Nadu');
+  const [directoryDistrict, setDirectoryDistrict] = useState('');
+  const [room, setRoom] = useState('medex-consult');
+  const [stats, setStats] = useState(null);
 
   useEffect(() => {
-    fetchHospitals();
-  }, [sortBy, emergencyOnly, searchQuery]);
+    let active = true;
+    setBusy(true); setError('');
+    const request = mode === 'nearby'
+      ? hospitalsService.getHospitals({ sortBy, searchQuery, location: location || undefined })
+      : hospitalsService.searchDirectory({ searchQuery, state:directoryState, district:directoryDistrict });
+    request.then(result => {
+      if (!active) return;
+      const rows = Array.isArray(result) ? result : result.data || [];
+      setHospitals(emergencyOnly ? rows.filter(item => item.emergencyAvailable) : rows);
+    }).catch(e => { if (active) { setHospitals([]); setError(e.message); } })
+      .finally(() => { if (active) setBusy(false); });
+    if (mode === 'directory' && !stats) hospitalsService.getDirectoryStats().then(setStats).catch(() => {});
+    return () => { active = false; };
+  }, [mode,sortBy,emergencyOnly,searchQuery,location,directoryState,directoryDistrict]);
 
-  const fetchHospitals = async () => {
-    const list = await hospitalsService.getHospitals({
-      sortBy,
-      emergencyOnly,
-      searchQuery
-    });
-    setHospitals(list);
+  const useMyLocation = async () => {
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') throw new Error('Location permission was not granted.');
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setLocation({ latitude:pos.coords.latitude, longitude:pos.coords.longitude });
+    } catch (e) { Alert.alert('Location unavailable', e.message || 'Could not access your location.'); }
+  };
+
+  const joinConsult = async () => {
+    try {
+      const settings = await storageService.getSettings();
+      const base = Platform.OS === 'web' ? (settings.backendUrl && !settings.backendUrl.includes('10.0.2.2') ? settings.backendUrl : 'http://localhost:3000') : (settings.backendUrl || 'http://10.0.2.2:3000');
+      const response = await fetch(`${base}/api/agora/config`);
+      const config = await response.json();
+      if (!response.ok || !config.configured) throw new Error('Video visits are not configured on the MedEx server yet. Set AGORA_APP_ID and AGORA_APP_CERTIFICATE in the server environment.');
+      const url = `${base}/teleconsult.html?room=${encodeURIComponent(room.trim() || 'medex-consult')}&role=patient`;
+      await Linking.openURL(url);
+    } catch (e) { Alert.alert('Video consultation unavailable', e.message); }
   };
 
   const handleDialEmergency = (number) => {
@@ -50,6 +86,11 @@ export const HospitalsScreen = () => {
       />
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+        <View style={styles.consultCard}>
+          <View style={{ flex:1 }}><Text style={styles.consultTitle}>Video consultation</Text><Text style={styles.emptySub}>Start a secure browser-based visit with your care team.</Text></View>
+          <TextInput value={room} onChangeText={setRoom} placeholder="Visit room name" style={styles.roomInput} />
+          <TouchableOpacity style={styles.consultButton} onPress={joinConsult}><Ionicons name="videocam" size={17} color="#fff"/><Text style={styles.consultButtonText}>Join visit</Text></TouchableOpacity>
+        </View>
         {/* Emergency SOS Banner */}
         <View style={styles.sosBanner}>
           <View style={styles.sosHeader}>
@@ -76,11 +117,16 @@ export const HospitalsScreen = () => {
 
         {/* Search & Filters */}
         <View style={styles.filterSection}>
+          <View style={styles.controlsRow}>
+            {['nearby','directory'].map(value => <TouchableOpacity key={value} style={[styles.sortBtn, mode===value && styles.sortBtnActive]} onPress={()=>setMode(value)}><Text style={[styles.sortText,mode===value&&styles.sortTextActive]}>{value==='nearby'?'Nearby':'India directory'}</Text></TouchableOpacity>)}
+            {mode==='nearby' && <TouchableOpacity style={styles.sortBtn} onPress={useMyLocation}><Ionicons name="locate" size={15} color={colors.primary}/><Text style={styles.sortText}>Use my location</Text></TouchableOpacity>}
+          </View>
+          {mode==='directory' && <View style={styles.controlsRow}><TextInput style={styles.directoryInput} value={directoryState} onChangeText={setDirectoryState} placeholder="State"/><TextInput style={styles.directoryInput} value={directoryDistrict} onChangeText={setDirectoryDistrict} placeholder="District (optional)"/></View>}
           <View style={styles.searchBar}>
             <Ionicons name="search" size={18} color={colors.textMuted} style={{ marginRight: 6 }} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search hospital or area in Chennai/TN..."
+              placeholder="Search hospitals or area..."
               placeholderTextColor={colors.textMuted}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -130,8 +176,11 @@ export const HospitalsScreen = () => {
         {/* Hospital Cards List */}
         <View style={styles.listSection}>
           <Text style={styles.resultsCount}>
-            Found {hospitals.length} hospital{hospitals.length !== 1 ? 's' : ''}
+            {busy ? 'Searching hospitals…' : `Found ${hospitals.length} hospital${hospitals.length !== 1 ? 's' : ''}`}{stats?.totalHospitals ? ` · ${stats.totalHospitals.toLocaleString()} in directory` : ''}
           </Text>
+
+          {busy && <ActivityIndicator color={colors.primary} style={{ margin: spacing.md }} />}
+          {!!error && <Text style={styles.errorText}>{error}</Text>}
 
           {hospitals.length === 0 ? (
             <View style={styles.emptyCard}>
@@ -327,5 +376,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textMuted,
     marginTop: 2
-  }
+  },
+  consultCard:{backgroundColor:'#E9F8F4',borderRadius:borderRadius.md,padding:spacing.md,marginBottom:spacing.md,borderWidth:1,borderColor:'#B7E8DA'},
+  consultTitle:{fontSize:16,fontWeight:'800',color:colors.primaryDark,marginBottom:4},
+  roomInput:{backgroundColor:'#fff',borderWidth:1,borderColor:colors.border,borderRadius:borderRadius.sm,padding:10,marginTop:spacing.sm,color:colors.textPrimary},
+  consultButton:{flexDirection:'row',justifyContent:'center',alignItems:'center',backgroundColor:colors.primary,borderRadius:borderRadius.sm,padding:12,marginTop:spacing.sm,gap:8},
+  consultButtonText:{fontSize:13,fontWeight:'700',color:'#fff'},
+  directoryInput:{flex:1,backgroundColor:colors.bgHighlight,borderWidth:1,borderColor:colors.border,borderRadius:borderRadius.sm,padding:9,color:colors.textPrimary,marginVertical:spacing.xs},
+  errorText:{color:colors.danger,marginBottom:spacing.sm}
 });

@@ -6,8 +6,8 @@
 import agoraPkg from 'agora-token';
 const { RtcTokenBuilder, RtcRole } = agoraPkg;
 
-export const AGORA_APP_ID = process.env.AGORA_APP_ID || 'ebd252d0dfa746fe9ae1ba13c34fb30f';
-export const AGORA_APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE || '2f3dc21fdea242b5b07036cd50e0fcd5';
+export const AGORA_APP_ID = process.env.AGORA_APP_ID || '';
+export const AGORA_APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE || '';
 
 /**
  * Generate RTC Token for Agora 1-on-1 video call

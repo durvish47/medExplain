@@ -17,6 +17,8 @@ import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
 import { GoogleGenAI } from '@google/genai';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { createCanvas } from '@napi-rs/canvas';
+import { createWorker } from 'tesseract.js';
 import { PDFDocument } from 'pdf-lib';
 import { reportSchema, responseJsonSchema } from './schema.js';
 import { SYSTEM_PROMPT } from './prompt.js';
@@ -57,14 +59,40 @@ async function getPdfText(buffer) {
   const task = pdfjsLib.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true });
   const document = await task.promise;
   const pages = [];
+  let needsOcr = false;
   try {
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
       const page = await document.getPage(pageNumber);
       const content = await page.getTextContent();
       pages.push(content.items.map(item => 'str' in item ? item.str : '').filter(Boolean).join(' '));
     }
+    needsOcr = pages.join(' ').trim().length < 80;
   } finally { await task.destroy(); }
-  return pages.join('\n').trim();
+  const extracted = pages.join('\n').trim();
+  if (!needsOcr) return extracted;
+
+  const ocrTask = pdfjsLib.getDocument({ data:new Uint8Array(buffer), useSystemFonts:true });
+  const ocrDocument = await ocrTask.promise;
+  let worker;
+  const recognized = [];
+  try {
+    worker = await createWorker('eng');
+    const pageCount = Math.min(ocrDocument.numPages, 20);
+    for (let pageNumber=1; pageNumber<=pageCount; pageNumber++) {
+      const page=await ocrDocument.getPage(pageNumber);
+      const viewport=page.getViewport({scale:2});
+      const canvas=createCanvas(Math.ceil(viewport.width),Math.ceil(viewport.height));
+      const context=canvas.getContext('2d');
+      await page.render({canvasContext:context,viewport,canvas}).promise;
+      const {data}=await worker.recognize(await canvas.encode('png'));
+      if (data.text?.trim()) recognized.push(data.text.trim());
+    }
+  } finally {
+    if (worker) await worker.terminate();
+    await ocrTask.destroy();
+  }
+  const ocrText=recognized.join('\n').trim();
+  return ocrText.length > extracted.length ? ocrText : extracted;
 }
 
 async function postJson(fetchImpl, url, headers, body, timeoutMs = 90000) {
@@ -112,8 +140,9 @@ export function createApp({ env = process.env, analyzePdf, fetchImpl = globalThi
       const expireTime = parseInt(req.query.expireTime, 10) || 3600;
       const currentTs = Math.floor(Date.now() / 1000);
       const privilegeExpiredTs = currentTs + expireTime;
-      const appId = env.AGORA_APP_ID || process.env.AGORA_APP_ID || 'ebd252d0dfa746fe9ae1ba13c34fb30f';
-      const appCert = env.AGORA_APP_CERTIFICATE || process.env.AGORA_APP_CERTIFICATE || '2f3dc21fdea242b5b07036cd50e0fcd5';
+      const appId = env.AGORA_APP_ID;
+      const appCert = env.AGORA_APP_CERTIFICATE;
+      if (!appId || !appCert) return res.status(503).json({ status:'error', code:'AGORA_NOT_CONFIGURED', message:'Video visits are not configured yet. Add AGORA_APP_ID and AGORA_APP_CERTIFICATE to the backend environment.' });
 
       const token = RtcTokenBuilder.buildTokenWithUid(
         appId,
@@ -148,10 +177,11 @@ export function createApp({ env = process.env, analyzePdf, fetchImpl = globalThi
   });
 
   app.get('/api/agora/config', (_req, res) => {
-    const appId = env.AGORA_APP_ID || process.env.AGORA_APP_ID || 'ebd252d0dfa746fe9ae1ba13c34fb30f';
+    const appId = env.AGORA_APP_ID || null;
     res.status(200).json({
       status: 'success',
       appId,
+      configured: Boolean(appId && env.AGORA_APP_CERTIFICATE),
       defaultChannel: 'rural-teleconsult-1',
       adaptiveBitrateSettings: {
         dualStreamMode: true,
@@ -328,6 +358,26 @@ export function createApp({ env = process.env, analyzePdf, fetchImpl = globalThi
         message: 'Failed to retrieve live nearby hospitals',
         error: error.message
       });
+    }
+  });
+
+  app.get('/api/india/hospitals', async (req, res) => {
+    try {
+      const results = await githubDatasetService.searchHospitals({
+        state:req.query.state, city:req.query.city, district:req.query.district, name:req.query.name,
+        page:parseInt(req.query.page, 10) || 1, limit:Math.min(50, parseInt(req.query.limit, 10) || 20)
+      });
+      return res.json({ status:'success', source:'Live public hospital datasets', ...results });
+    } catch (error) {
+      return res.status(503).json({ status:'error', message:'The live hospital directory is temporarily unavailable.', error:error.message });
+    }
+  });
+
+  app.get('/api/india/hospitals/stats', async (_req, res) => {
+    try {
+      return res.json({ status:'success', source:'Live public hospital datasets', data:await githubDatasetService.getDatasetStats() });
+    } catch (error) {
+      return res.status(503).json({ status:'error', message:'Hospital directory statistics are unavailable.', error:error.message });
     }
   });
 
