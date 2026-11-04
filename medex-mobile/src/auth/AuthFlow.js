@@ -5,6 +5,7 @@ import { OnboardingScreen } from '../screens/auth/OnboardingScreen';
 import { ProfileScreen } from '../screens/auth/ProfileScreen';
 import { EmergencyContactScreen } from '../screens/auth/EmergencyContactScreen';
 import { StepTransition } from '../components/auth/StepTransition';
+import { authService } from './authService';
 
 // Step keys. Each maps to a route the flow is designed around.
 export const AUTH_STEPS = {
@@ -37,7 +38,13 @@ export const AuthFlow = ({ onComplete }) => {
     case AUTH_STEPS.LOGIN:
       content = (
         <LoginScreen
-          onSuccess={() => onComplete({ role: null, profile: null })}
+          onSuccess={(loggedInUser) => {
+            onComplete({
+              role: loggedInUser?.role || 'patient',
+              profile: null,
+              email: loggedInUser?.email || '',
+            });
+          }}
           onSwitchToSignup={() => setStep(AUTH_STEPS.SIGNUP)}
         />
       );
@@ -45,8 +52,11 @@ export const AuthFlow = ({ onComplete }) => {
     case AUTH_STEPS.ONBOARDING:
       content = (
         <OnboardingScreen
-          onContinue={(selectedRole) => {
+          onContinue={async (selectedRole) => {
             setRole(selectedRole);
+            if (signupEmail) {
+              await authService.updateUserRole({ email: signupEmail, role: selectedRole }).catch(() => {});
+            }
             setStep(AUTH_STEPS.PROFILE);
           }}
         />

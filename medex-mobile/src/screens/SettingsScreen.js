@@ -74,7 +74,7 @@ const LangChip = ({ label, selected, onPress }) => (
 // Main Screen
 // ──────────────────────────────────────────────────────────────────────────────
 
-export const SettingsScreen = () => {
+export const SettingsScreen = ({ onLogout }) => {
   // Profile
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -776,6 +776,14 @@ export const SettingsScreen = () => {
           <Text style={styles.saveBtnText}>Save Changes</Text>
         </TouchableOpacity>
 
+        {/* Logout Button */}
+        {onLogout ? (
+          <TouchableOpacity style={styles.logoutBtn} onPress={onLogout} activeOpacity={0.8}>
+            <Ionicons name="log-out-outline" size={18} color={colors.danger} />
+            <Text style={styles.logoutBtnText}>Log Out</Text>
+          </TouchableOpacity>
+        ) : null}
+
         {/* App Info Footer */}
         <View style={styles.footer}>
           <Text style={styles.footerTitle}>MedEx v1.0.0</Text>
@@ -1035,6 +1043,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: colors.textWhite,
+    marginLeft: 8,
+  },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.bgSurface,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    paddingVertical: 13,
+    borderRadius: borderRadius.md,
+    marginTop: spacing.xs,
+    marginBottom: spacing.md,
+  },
+  logoutBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.danger,
     marginLeft: 8,
   },
 
