@@ -1,0 +1,4 @@
+/* Tailwind entry point consumed by NativeWind (see metro.config.js) */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

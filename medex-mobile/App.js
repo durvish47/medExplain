@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Platform, SafeAreaView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
@@ -11,6 +11,10 @@ import { MedLexiconScreen } from './src/screens/MedLexiconScreen';
 import { HospitalsScreen } from './src/screens/HospitalsScreen';
 import { InsuranceScreen } from './src/screens/InsuranceScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
+import { AuthFlow } from './src/auth/AuthFlow';
+import { storageService } from './src/services/storageService';
+// NativeWind: loads Tailwind's base/components/utilities for className props
+import './global.css';
 
 const TABS = [
   { id: 'home', label: 'Home', icon: 'grid-outline', active: 'grid' },
@@ -24,6 +28,42 @@ const TABS = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('home');
+  // null until the user finishes signup/login + onboarding
+  const [user, setUser] = useState(null);
+
+  // Persist signup/onboarding data into the settings profile so
+  // SettingsScreen picks it up automatically on mount.
+  const handleAuthComplete = useCallback(async (authResult) => {
+    const { role, profile, email } = authResult;
+
+    if (profile) {
+      // Save the complete profile payload plus role and email.
+      // full_name is mapped to name for the settings display.
+      const profileData = {
+        ...profile,
+        role: role || '',
+      };
+      if (profile.full_name) profileData.name = profile.full_name;
+      if (email) profileData.email = email;
+      if (profile.emergencyContactName != null) {
+        profileData.emergencyContactName = String(profile.emergencyContactName).trim();
+      } else if (profile.emergency_contact_name != null) {
+        profileData.emergencyContactName = String(profile.emergency_contact_name).trim();
+      }
+      if (profile.emergencyContactPhone != null) {
+        profileData.emergencyContactPhone = String(profile.emergencyContactPhone).trim();
+      } else if (profile.emergency_contact_phone != null) {
+        profileData.emergencyContactPhone = String(profile.emergency_contact_phone).trim();
+      }
+
+      await storageService.saveUserProfile(profileData);
+    } else if (email) {
+      // Login-only flow: at least persist the email
+      await storageService.saveUserProfile({ email });
+    }
+
+    setUser(authResult);
+  }, []);
   const screens = {
     home: <HomeScreen onNavigate={setActiveTab} />,
     explain: <MedExplainScreen />,
@@ -33,6 +73,16 @@ export default function App() {
     insurance: <InsuranceScreen />,
     settings: <SettingsScreen />,
   };
+
+  // Show the auth + onboarding flow before the main app
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ExpoStatusBar style="dark" backgroundColor={colors.bgMuted} />
+        <AuthFlow onComplete={handleAuthComplete} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
