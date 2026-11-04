@@ -35,15 +35,13 @@ export const HospitalCard = ({ hospital }) => {
         <View style={styles.titleArea}>
           <Text style={styles.hospitalName}>{hospital.name}</Text>
           <View style={styles.ratingRow}>
-            <Ionicons name="star" size={14} color="#F59E0B" />
-            <Text style={styles.ratingText}>{hospital.rating}</Text>
-            <Text style={styles.reviewText}>({hospital.totalReviews || 0} reviews)</Text>
+            {hospital.rating != null ? <><Ionicons name="star" size={14} color="#F59E0B" /><Text style={styles.ratingText}>{Number(hospital.rating).toFixed(1)}</Text><Text style={styles.reviewText}>({hospital.totalReviews || 0} reviews)</Text></> : <Text style={styles.reviewText}>Rating unavailable</Text>}
           </View>
         </View>
 
         <View style={styles.distanceBadge}>
           <Ionicons name="navigate-outline" size={12} color={colors.primary} />
-          <Text style={styles.distanceText}>{hospital.distanceKm} km</Text>
+          <Text style={styles.distanceText}>{hospital.distanceKm != null ? `${Number(hospital.distanceKm).toFixed(1)} km` : 'Directory'}</Text>
         </View>
       </View>
 

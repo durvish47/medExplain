@@ -4,8 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const SCOPES = [
-  'https://www.googleapis.com/auth/calendar.events',
-  'https://www.googleapis.com/auth/calendar'
+  'https://www.googleapis.com/auth/calendar.events'
 ];
 
 /**
@@ -16,9 +15,7 @@ export const createOAuth2Client = () => {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/auth/google/callback';
 
-  if (!clientId || !clientSecret) {
-    console.warn('⚠️ GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is missing in environment variables.');
-  }
+  if (!clientId || !clientSecret) throw new Error('Google Calendar sign-in is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the backend environment.');
 
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 };
@@ -26,12 +23,13 @@ export const createOAuth2Client = () => {
 /**
  * Generates the Google consent screen URL for Calendar permissions
  */
-export const getAuthUrl = () => {
+export const getAuthUrl = (state) => {
   const oauth2Client = createOAuth2Client();
   return oauth2Client.generateAuthUrl({
     access_type: 'offline', // Requests refresh_token
     prompt: 'consent',      // Forces consent to ensure refresh_token is returned
-    scope: SCOPES
+    scope: SCOPES,
+    state
   });
 };
 

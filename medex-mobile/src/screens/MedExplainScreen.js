@@ -110,6 +110,9 @@ export const MedExplainScreen = () => {
       ? { kind: 'sample', source: 'Built-in sample report', provider: 'MedEx sample library', remoteProcessing: false }
       : { kind: 'unknown', source: 'Saved before transparency details were available', provider: 'Unavailable', remoteProcessing: null }
   );
+  const doctorQuestions = selectedLanguage === 'ta'
+    ? (currentReport.doctor_questions_ta?.length ? currentReport.doctor_questions_ta : ['இந்த முடிவின் பொருள் என்ன, அடுத்ததாக என்ன செய்ய வேண்டும்?'])
+    : (currentReport.doctor_questions_en?.length ? currentReport.doctor_questions_en : ['Which results need follow-up, and when should they be checked again?', 'Could any medicines, symptoms, or health conditions affect these results?', 'What practical steps should I take before my next visit?']);
 
   return (
     <View style={styles.container}>
@@ -373,20 +376,32 @@ export const MedExplainScreen = () => {
             </View>
 
             {/* Questions to ask doctor */}
-            {currentReport.doctor_questions_en ? (
+            <>
               <View style={styles.doctorQuestionsCard}>
                 <View style={styles.sectionTitleRow}>
                   <Ionicons name="chatbubbles-outline" size={18} color={colors.primary} />
                   <Text style={styles.cardHeading}>Questions to Ask Your Doctor</Text>
                 </View>
-                {(selectedLanguage === 'ta' ? currentReport.doctor_questions_ta : currentReport.doctor_questions_en)?.map((q, idx) => (
+                {doctorQuestions.map((q, idx) => (
                   <View key={idx} style={styles.questionItem}>
                     <Ionicons name="help-circle-outline" size={16} color={colors.primary} style={{ marginTop: 2, marginRight: 6 }} />
                     <Text style={styles.questionText}>{q}</Text>
                   </View>
                 ))}
               </View>
-            ) : null}
+            </>
+
+            <View style={styles.finalSummaryCard}>
+              <View style={styles.sectionTitleRow}>
+                <Ionicons name="heart" size={18} color={colors.primary} />
+                <Text style={styles.cardHeading}>Your Report Summary</Text>
+              </View>
+              <Text style={styles.significanceText}>{selectedLanguage==='ta' ? (currentReport.significance_ta || 'இந்த முடிவுகளை உங்கள் மருத்துவருடன் பகிருங்கள். ஒரு ஆய்வு மதிப்பை மட்டும் வைத்து முடிவு செய்யாமல், உங்கள் அறிகுறிகள் மற்றும் மருத்துவ வரலாற்றுடன் சேர்த்து மதிப்பிட வேண்டும்.') : (currentReport.significance_en || 'Review the listed results with your healthcare provider. A single lab value should be interpreted alongside your symptoms, history, and examination.')}</Text>
+              <Text style={styles.recomSubheading}>{selectedLanguage==='ta'?'நலவாழ்வு பரிந்துரைகள்':'Wellbeing suggestions'}</Text>
+              {(selectedLanguage==='ta' ? (currentReport.recommendations_ta?.length ? currentReport.recommendations_ta.slice(0,3) : ['இந்த அறிக்கையை அடுத்த மருத்துவ சந்திப்பிற்கு எடுத்துச் செல்லுங்கள்.','மருந்துகளில் மாற்றம் செய்வதற்கு முன் மருத்துவரை அணுகுங்கள்.','புதிய அல்லது மோசமடையும் அறிகுறிகளுக்கு மருத்துவ ஆலோசனை பெறுங்கள்.']) : (currentReport.recommendations_en?.length ? currentReport.recommendations_en.slice(0, 3) : ['Keep a copy of this report and bring it to your next appointment.', 'Continue prescribed care and discuss any changes with your clinician.', 'Seek timely medical advice if you develop new or worsening symptoms.'])).map((item, idx) => (
+                <View key={idx} style={styles.recItem}><Ionicons name="checkmark-circle" size={16} color={colors.success} style={{ marginTop: 2, marginRight: 6 }} /><Text style={styles.recText}>{item}</Text></View>
+              ))}
+            </View>
 
             {/* Safety Disclaimer */}
             <View style={styles.disclaimerBox}>
@@ -791,6 +806,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border
+  },
+  finalSummaryCard: {
+    backgroundColor: '#ECFDF5', borderRadius: borderRadius.md, padding: spacing.md,
+    marginBottom: spacing.sm, borderWidth: 1, borderColor: '#A7F3D0'
   },
   questionItem: {
     flexDirection: 'row',

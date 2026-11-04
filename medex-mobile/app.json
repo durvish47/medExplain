@@ -2,6 +2,7 @@
   "expo": {
     "name": "MedEx - Healthcare AI",
     "slug": "medex-mobile",
+    "scheme": "medex",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -34,7 +35,8 @@
     },
     "plugins": [
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      ["expo-location", { "locationWhenInUsePermission": "Allow MedEx to find nearby hospitals using your location." }]
     ]
   }
 }

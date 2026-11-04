@@ -5,16 +5,19 @@ import { getAuthUrl, getTokensFromCode } from '../config/google.js';
  */
 export const getGoogleAuthUrl = (req, res) => {
   try {
-    const url = getAuthUrl();
+    const state = String(req.query.state || '');
+    if (!/^medex-[A-Za-z0-9-]{16,220}$/.test(state)) return res.status(400).json({success:false,message:'A valid OAuth state value is required.'});
+    const url = getAuthUrl(state);
     return res.status(200).json({
       success: true,
       message: 'Authenticate with Google Calendar via this URL',
       authUrl: url
     });
   } catch (error) {
-    return res.status(500).json({
+    const unconfigured=error.message?.includes('not configured');
+    return res.status(unconfigured?503:500).json({
       success: false,
-      message: 'Failed to generate Google Auth URL',
+      message: unconfigured ? error.message : 'Failed to generate Google Auth URL',
       error: error.message
     });
   }
@@ -33,26 +36,13 @@ export const handleGoogleCallback = async (req, res) => {
     });
   }
 
-  try {
-    const tokens = await getTokensFromCode(code);
-    return res.status(200).json({
-      success: true,
-      message: 'Google authorization successful! Save these tokens to access Google Calendar.',
-      tokens: {
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        scope: tokens.scope,
-        token_type: tokens.token_type,
-        expiry_date: tokens.expiry_date
-      }
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to exchange authorization code for tokens',
-      error: error.message
-    });
-  }
+  const state=String(req.query.state||'');
+  if (!/^medex-[A-Za-z0-9-]{16,220}$/.test(state)) return res.status(400).send('Invalid OAuth state. Return to MedEx and start sign-in again.');
+  const safeCode=encodeURIComponent(String(code));
+  const safeState=encodeURIComponent(state);
+  res.setHeader('Cross-Origin-Opener-Policy','unsafe-none');
+  res.setHeader('Cross-Origin-Embedder-Policy','unsafe-none');
+  res.status(200).type('html').send(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>MedEx Calendar connected</title></head><body style="font-family:system-ui;text-align:center;padding:3rem;color:#164e48"><h2>Google Calendar authorized</h2><p>Return to MedEx to finish connecting your calendar.</p><a id="continue" href="medex://calendar-auth?code=${safeCode}&state=${safeState}">Return to MedEx</a><script>const payload={type:'MEDEX_GOOGLE_CALENDAR',code:${JSON.stringify(String(code))},state:${JSON.stringify(state)}};if(window.opener){window.opener.postMessage(payload,'*');setTimeout(()=>window.close(),250)}else{document.getElementById('continue').click()}</script></body></html>`);
 };
 
 /**

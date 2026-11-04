@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "2bd1b3a9-01ce-45fe-9b2a-bcb7fd6b5024"
+      }
+    },
+    "android": {
+      "package": "com.durvish07.medexplain"
+    }
+  }
+}
