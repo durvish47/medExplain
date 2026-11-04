@@ -85,6 +85,8 @@ async function postJson(fetchImpl, url, headers, body, timeoutMs = 90000) {
 
 export function createApp({ env = process.env, analyzePdf, fetchImpl = globalThis.fetch, genAiClientFactory = (apiKey) => new GoogleGenAI({ apiKey }) } = {}) {
   const app = express();
+  const consultationCalls = [];
+  const consultationMessages = [];
   app.disable('x-powered-by');
   app.use(helmet({
     contentSecurityPolicy: false,
@@ -95,6 +97,40 @@ export function createApp({ env = process.env, analyzePdf, fetchImpl = globalThi
   app.use(cors());
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  // Lightweight consultation inbox for live call requests and recorded replies.
+  const audioUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024, files: 1 } });
+  app.get('/api/consultations', (_req, res) => res.json({ calls: consultationCalls, messages: consultationMessages.map(({ audio, mimeType, ...message }) => message) }));
+  app.post('/api/consultations/calls', (req, res) => {
+    const patientId = String(req.body?.patientId || '').slice(0, 80);
+    if (!patientId) return res.status(400).json({ error: 'Patient ID is required.' });
+    const existing = consultationCalls.find(call => call.patientId === patientId && ['ringing', 'connected'].includes(call.status));
+    if (existing) return res.status(200).json({ call: existing });
+    const call = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, patientId, patientName: String(req.body.patientName || 'Patient').slice(0, 100), room: `consult-${patientId.replace(/[^a-z0-9-]/gi, '').slice(0, 45)}`, status: 'ringing', createdAt: new Date().toISOString() };
+    consultationCalls.unshift(call);
+    return res.status(201).json({ call });
+  });
+  app.patch('/api/consultations/calls/:id', (req, res) => {
+    const call = consultationCalls.find(item => item.id === req.params.id);
+    if (!call) return res.status(404).json({ error: 'Call request not found.' });
+    if (!['accepted', 'declined', 'connected', 'ended'].includes(req.body?.status)) return res.status(400).json({ error: 'Invalid call status.' });
+    call.status = req.body.status;
+    call.updatedAt = new Date().toISOString();
+    return res.json({ call });
+  });
+  app.post('/api/consultations/messages', audioUpload.single('audio'), (req, res) => {
+    const role = req.body?.role;
+    if (!['patient', 'doctor'].includes(role)) return res.status(400).json({ error: 'Choose a valid sender role.' });
+    if (!req.file) return res.status(400).json({ error: 'Record a voice message before sending.' });
+    const message = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, role, patientId: String(req.body.patientId || '').slice(0, 80), patientName: String(req.body.patientName || 'Patient').slice(0, 100), duration: Math.max(0, Number(req.body.duration) || 0), mimeType: req.file.mimetype || 'audio/webm', audio: req.file.buffer, createdAt: new Date().toISOString() };
+    consultationMessages.push(message);
+    return res.status(201).json({ message: { ...message, audio: undefined, audioUrl: `/api/consultations/messages/${message.id}/audio` } });
+  });
+  app.get('/api/consultations/messages/:id/audio', (req, res) => {
+    const message = consultationMessages.find(item => item.id === req.params.id);
+    if (!message) return res.status(404).json({ error: 'Recording not found.' });
+    res.set('Content-Type', message.mimeType).set('Cache-Control', 'private, max-age=3600').send(message.audio);
+  });
 
   // Serve static public assets (Teleconsultation UI & Hospital Dashboard)
   app.use(express.static(path.resolve(__dirname, '../../public')));
@@ -339,8 +375,8 @@ export function createApp({ env = process.env, analyzePdf, fetchImpl = globalThi
     try {
       const lat = parseFloat(req.query.lat) || DEFAULT_LAT;
       const lon = parseFloat(req.query.lon) || DEFAULT_LON;
-      const radiusKm = parseFloat(req.query.radius) || 50;
-      const limit = parseInt(req.query.limit, 10) || 6;
+      const radiusKm = parseFloat(req.query.radius) || 100;
+      const limit = parseInt(req.query.limit, 10) || 10;
 
       console.log(`[India Dataset API] Live search near (${lat}, ${lon}), radius: ${radiusKm}km`);
 
@@ -457,6 +493,60 @@ export function createApp({ env = process.env, analyzePdf, fetchImpl = globalThi
         deviceHttps: `https://${localIp}:3443/teleconsult.html`
       }
     });
+  });
+
+  /**
+   * GET /api/india/hospitals/search
+   * Search hospitals by state, district, or city name from the live GitHub dataset
+   * Supports: ?state=Tamil+Nadu&district=Chennai&limit=20&page=1
+   */
+  app.get('/api/india/hospitals/search', async (req, res) => {
+    try {
+      const filters = {
+        state: req.query.state || '',
+        district: req.query.district || '',
+        city: req.query.city || '',
+        name: req.query.name || '',
+        limit: req.query.limit || 20,
+        page: req.query.page || 1
+      };
+
+      console.log(`[Hospital Search] Filters:`, filters);
+
+      const result = await githubDatasetService.searchHospitals(filters);
+
+      res.status(200).json({
+        status: 'success',
+        source: 'Official Tamil Nadu & India Live Datasets (GitHub)',
+        filters,
+        data: result.hospitals,
+        hospitals: result.hospitals,
+        total: result.pagination.totalResults,
+        totalPages: result.pagination.totalPages,
+        pagination: result.pagination
+      });
+    } catch (error) {
+      console.error('[Hospital Search] Error:', error.message);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to search hospitals',
+        error: error.message
+      });
+    }
+  });
+
+  /**
+   * GET /api/india/hospitals/stats
+   * Get dataset statistics (total count, states, districts covered)
+   */
+  app.get('/api/india/hospitals/stats', async (req, res) => {
+    try {
+      const stats = await githubDatasetService.getDatasetStats();
+      res.status(200).json({ status: 'success', ...stats });
+    } catch (error) {
+      console.error('[Hospital Stats] Error:', error.message);
+      res.status(500).json({ status: 'error', message: error.message });
+    }
   });
 
   // 3. MedLexicon Routes

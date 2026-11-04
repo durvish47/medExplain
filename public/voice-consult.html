@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voice Symptom Consultation - MedExplain</title>
+  <style>
+    :root {
+      --primary: #0284c7;
+      --primary-dark: #0369a1;
+      --primary-light: #e0f2fe;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #1e293b;
+      --text-secondary: #64748b;
+      --border: #e2e8f0;
+      --danger: #ef4444;
+      --success: #22c55e;
+      --patient-bg: #dbeafe;
+      --doctor-bg: #dcfce7;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+      --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Navigation ── */
+    .top-nav {
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow);
+    }
+    .top-nav a {
+      color: var(--primary);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .top-nav a:hover { text-decoration: underline; }
+    .top-nav .title {
+      flex: 1;
+      text-align: center;
+      font-weight: 700;
+      font-size: 16px;
+      color: var(--text);
+    }
+
+    /* ── Main container ── */
+    .container {
+      max-width: 600px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 16px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+
+    /* ── Controls row ── */
+    .controls-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .control-group {
+      flex: 1;
+      min-width: 140px;
+    }
+    .control-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .control-group select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 15px;
+      color: var(--text);
+      background: var(--bg);
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2364748b' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      cursor: pointer;
+    }
+    .control-group select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-light);
+    }
+
+    /* ── Speak button ── */
+    .speak-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 24px 16px;
+    }
+    .speak-btn {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      border: none;
+      background: var(--primary);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+      box-shadow: 0 4px 14px rgba(2,132,199,0.4);
+      position: relative;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .speak-btn svg {
+      width: 36px;
+      height: 36px;
+      fill: currentColor;
+    }
+    .speak-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 6px 20px rgba(2,132,199,0.5);
+    }
+    .speak-btn:active {
+      transform: scale(0.97);
+    }
+    .speak-btn.listening {
+      background: var(--danger);
+      box-shadow: 0 4px 14px rgba(239,68,68,0.45);
+      animation: pulse-btn 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-btn {
+      0%, 100% { box-shadow: 0 4px 14px rgba(239,68,68,0.45); }
+      50% { box-shadow: 0 4px 30px rgba(239,68,68,0.7); }
+    }
+
+    /* ── Recording indicator ── */
+    .recording-indicator {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--danger);
+    }
+    .recording-indicator.active {
+      display: flex;
+    }
+    .rec-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--danger);
+      animation: pulse-dot 1s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.75); }
+    }
+
+    /* ── Transcript textarea ── */
+    .transcript-area {
+      width: 100%;
+      min-height: 80px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 15px;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--bg);
+      resize: vertical;
+    }
+    .transcript-area:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-light);
+    }
+    .transcript-label {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .send-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .send-btn {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .send-btn:hover { background: var(--primary-dark); }
+    .send-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .clear-btn {
+      padding: 12px 18px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card-bg);
+      color: var(--text-secondary);
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .clear-btn:hover { background: var(--bg); }
+
+    /* ── Message thread ── */
+    .thread-header {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .thread-header .count {
+      font-size: 12px;
+      background: var(--primary-light);
+      color: var(--primary);
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+    .thread {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 400px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .thread::-webkit-scrollbar { width: 4px; }
+    .thread::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .msg {
+      padding: 12px;
+      border-radius: 10px;
+      max-width: 90%;
+      position: relative;
+    }
+    .msg.patient {
+      background: var(--patient-bg);
+      align-self: flex-start;
+      border-bottom-left-radius: 2px;
+    }
+    .msg.doctor {
+      background: var(--doctor-bg);
+      align-self: flex-end;
+      border-bottom-right-radius: 2px;
+    }
+    .msg-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+    .role-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .role-badge.patient {
+      background: #3b82f6;
+      color: #fff;
+    }
+    .role-badge.doctor {
+      background: #16a34a;
+      color: #fff;
+    }
+    .lang-tag {
+      font-size: 11px;
+      color: var(--text-secondary);
+      background: var(--bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .msg-text {
+      font-size: 15px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+    .msg-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+    .msg-time {
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+    .tts-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: background 0.15s;
+    }
+    .tts-btn:hover {
+      background: var(--bg);
+    }
+    .tts-btn svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+    }
+
+    .empty-thread {
+      text-align: center;
+      color: var(--text-secondary);
+      font-size: 14px;
+      padding: 24px 0;
+    }
+
+    /* ── Unsupported banner ── */
+    .unsupported-banner {
+      display: none;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      padding: 14px 16px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 400px) {
+      .speak-btn {
+        width: 100px;
+        height: 100px;
+        font-size: 14px;
+      }
+      .speak-btn svg {
+        width: 30px;
+        height: 30px;
+      }
+      .controls-row {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="top-nav">
+    <a href="/">← Dashboard</a>
+    <span class="title">🎙️ Voice Consult</span>
+    <a href="/teleconsult.html">Teleconsult →</a>
+  </nav>
+
+  <div class="container">
+
+    <!-- Unsupported browser banner -->
+    <div class="unsupported-banner" id="unsupportedBanner">
+      ⚠️ Your browser does not support the Web Speech API.<br>
+      Please open this page in <strong>Google Chrome</strong> on Android or Desktop.
+    </div>
+
+    <!-- Controls: Role + Language -->
+    <div class="card">
+      <div class="controls-row">
+        <div class="control-group">
+          <label for="roleSelect">Your Role</label>
+          <select id="roleSelect">
+            <option value="patient">🧑 Patient</option>
+            <option value="doctor">🩺 Doctor</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label for="langSelect">Language</label>
+          <select id="langSelect">
+            <option value="ta-IN">தமிழ் (Tamil)</option>
+            <option value="en-IN">English (India)</option>
+            <option value="hi-IN">हिन्दी (Hindi)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Speak button -->
+    <div class="card speak-section">
+      <button class="speak-btn" id="speakBtn" type="button">
+        <svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm-1-9a1 1 0 1 1 2 0v6a1 1 0 1 1-2 0V5zm6 6a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V21h2v-3.07A7 7 0 0 0 19 11h-2z"/></svg>
+        <span id="speakLabel">Tap to Speak</span>
+      </button>
+      <div class="recording-indicator" id="recordingIndicator">
+        <span class="rec-dot"></span>
+        <span>Listening…</span>
+      </div>
+    </div>
+
+    <!-- Transcript -->
+    <div class="card">
+      <div class="transcript-label">Transcribed Text</div>
+      <textarea
+        class="transcript-area"
+        id="transcriptArea"
+        placeholder="Your spoken words will appear here…"
+      ></textarea>
+      <div class="send-row">
+        <button class="send-btn" id="sendBtn" disabled>Send Message</button>
+        <button class="clear-btn" id="clearBtn" type="button">Clear</button>
+      </div>
+    </div>
+
+    <!-- Message thread -->
+    <div class="card">
+      <div class="thread-header">
+        Consultation Thread
+        <span class="count" id="msgCount">0</span>
+      </div>
+      <div class="thread" id="thread">
+        <div class="empty-thread" id="emptyThread">
+          No messages yet. Tap the microphone to start speaking.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // ── State ──
+    const messages = [];
+    let recognition = null;
+    let isListening = false;
+
+    // ── DOM refs ──
+    const speakBtn = document.getElementById('speakBtn');
+    const speakLabel = document.getElementById('speakLabel');
+    const recordingIndicator = document.getElementById('recordingIndicator');
+    const transcriptArea = document.getElementById('transcriptArea');
+    const sendBtn = document.getElementById('sendBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const thread = document.getElementById('thread');
+    const emptyThread = document.getElementById('emptyThread');
+    const msgCount = document.getElementById('msgCount');
+    const roleSelect = document.getElementById('roleSelect');
+    const langSelect = document.getElementById('langSelect');
+    const unsupportedBanner = document.getElementById('unsupportedBanner');
+
+    // ── Check support ──
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      unsupportedBanner.style.display = 'block';
+      speakBtn.disabled = true;
+      speakBtn.style.opacity = '0.4';
+      speakBtn.style.cursor = 'not-allowed';
+    }
+
+    // ── Language display names ──
+    const langNames = {
+      'ta-IN': 'Tamil',
+      'en-IN': 'English',
+      'hi-IN': 'Hindi'
+    };
+
+    // ── Enable/disable send button based on text ──
+    transcriptArea.addEventListener('input', () => {
+      sendBtn.disabled = transcriptArea.value.trim().length === 0;
+    });
+
+    // ── Speech Recognition ──
+    function startListening() {
+      if (!SpeechRecognition) return;
+
+      recognition = new SpeechRecognition();
+      recognition.lang = langSelect.value;
+      recognition.continuous = false;
+      recognition.interimResults = true;
+
+      let finalTranscript = transcriptArea.value;
+
+      recognition.onstart = () => {
+        isListening = true;
+        speakBtn.classList.add('listening');
+        speakLabel.textContent = 'Listening…';
+        recordingIndicator.classList.add('active');
+      };
+
+      recognition.onresult = (event) => {
+        let interimTranscript = '';
+        let newFinal = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            newFinal += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        if (newFinal) {
+          finalTranscript += (finalTranscript ? ' ' : '') + newFinal;
+        }
+        transcriptArea.value = finalTranscript + (interimTranscript ? ' ' + interimTranscript : '');
+        sendBtn.disabled = transcriptArea.value.trim().length === 0;
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        stopListening();
+      };
+
+      recognition.onend = () => {
+        stopListening();
+      };
+
+      recognition.start();
+    }
+
+    function stopListening() {
+      isListening = false;
+      speakBtn.classList.remove('listening');
+      speakLabel.textContent = 'Tap to Speak';
+      recordingIndicator.classList.remove('active');
+      if (recognition) {
+        try { recognition.stop(); } catch (e) { /* already stopped */ }
+        recognition = null;
+      }
+    }
+
+    speakBtn.addEventListener('click', () => {
+      if (!SpeechRecognition) return;
+      if (isListening) {
+        stopListening();
+      } else {
+        startListening();
+      }
+    });
+
+    // ── Clear ──
+    clearBtn.addEventListener('click', () => {
+      transcriptArea.value = '';
+      sendBtn.disabled = true;
+    });
+
+    // ── Send message ──
+    sendBtn.addEventListener('click', () => {
+      const text = transcriptArea.value.trim();
+      if (!text) return;
+
+      const msg = {
+        role: roleSelect.value,
+        text: text,
+        lang: langSelect.value,
+        langName: langNames[langSelect.value] || langSelect.value,
+        timestamp: new Date()
+      };
+      messages.push(msg);
+      renderMessage(msg);
+      updateCount();
+
+      transcriptArea.value = '';
+      sendBtn.disabled = true;
+    });
+
+    // ── Render a message ──
+    function renderMessage(msg) {
+      emptyThread.style.display = 'none';
+
+      const el = document.createElement('div');
+      el.className = 'msg ' + msg.role;
+
+      const isDoctor = msg.role === 'doctor';
+      const roleLabelText = isDoctor ? 'Doctor' : 'Patient';
+      const roleEmoji = isDoctor ? '🩺' : '🧑';
+
+      const timeStr = msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      let footerHTML = `<span class="msg-time">${timeStr}</span>`;
+      if (isDoctor) {
+        footerHTML += `
+          <button class="tts-btn" onclick="speakText(this, '${escapeJS(msg.text)}', '${msg.lang}')">
+            <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.49 4.49 0 0 0 2.5-3.5zM14 3.23v2.06a6.51 6.51 0 0 1 0 13.42v2.06A8.51 8.51 0 0 0 14 3.23z"/></svg>
+            Play
+          </button>`;
+      }
+
+      el.innerHTML = `
+        <div class="msg-header">
+          <span class="role-badge ${msg.role}">${roleEmoji} ${roleLabelText}</span>
+          <span class="lang-tag">${msg.langName}</span>
+        </div>
+        <div class="msg-text">${escapeHTML(msg.text)}</div>
+        <div class="msg-footer">${footerHTML}</div>
+      `;
+
+      thread.appendChild(el);
+      el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+
+    // ── Text-to-Speech ──
+    function speakText(btn, text, lang) {
+      if (speechSynthesis.speaking) {
+        speechSynthesis.cancel();
+        btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.49 4.49 0 0 0 2.5-3.5zM14 3.23v2.06a6.51 6.51 0 0 1 0 13.42v2.06A8.51 8.51 0 0 0 14 3.23z"/></svg> Play`;
+        return;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = lang;
+      utterance.rate = 0.9;
+
+      btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.49 4.49 0 0 0 2.5-3.5zM14 3.23v2.06a6.51 6.51 0 0 1 0 13.42v2.06A8.51 8.51 0 0 0 14 3.23z"/></svg> Stop`;
+
+      utterance.onend = () => {
+        btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.49 4.49 0 0 0 2.5-3.5zM14 3.23v2.06a6.51 6.51 0 0 1 0 13.42v2.06A8.51 8.51 0 0 0 14 3.23z"/></svg> Play`;
+      };
+
+      speechSynthesis.speak(utterance);
+    }
+
+    // ── Update message count ──
+    function updateCount() {
+      msgCount.textContent = messages.length;
+    }
+
+    // ── Helpers ──
+    function escapeHTML(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function escapeJS(str) {
+      return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+    }
+  </script>
+
+</body>
+</html>

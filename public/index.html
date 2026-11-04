@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Nearby Hospitals - HTML5 Browser Geolocation</title>
+  <title>🏥 MedExplain Healthcare Dashboard</title>
   <style>
     :root {
       --primary: #0284c7;
@@ -55,6 +55,34 @@
       font-size: 1rem;
     }
 
+    .nav-links {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    .nav-links a {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 18px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: background 0.2s ease, transform 0.1s ease;
+    }
+
+    .nav-links a:hover {
+      background: #e0f2fe;
+      transform: translateY(-1px);
+    }
+
     .geo-card {
       background: var(--card-bg);
       border: 1px solid var(--border);
@@ -63,6 +91,20 @@
       margin-bottom: 24px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.05);
       text-align: center;
+    }
+
+    .section-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-title.center {
+      justify-content: center;
     }
 
     .btn {
@@ -268,16 +310,119 @@
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+
+    /* District search section */
+    .search-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-end;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+      min-width: 180px;
+    }
+
+    .form-group label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .form-group select,
+    .form-group input {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.95rem;
+      color: var(--text-main);
+      background: var(--card-bg);
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .form-group select:focus,
+    .form-group input:focus {
+      border-color: var(--primary);
+    }
+
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    .pagination button {
+      padding: 8px 20px;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      color: var(--primary);
+      transition: background 0.2s;
+    }
+
+    .pagination button:hover:not(:disabled) {
+      background: #e0f2fe;
+    }
+
+    .pagination button:disabled {
+      color: #94a3b8;
+      cursor: not-allowed;
+    }
+
+    .pagination span {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .district-results-info {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    @media (max-width: 600px) {
+      header h1 {
+        font-size: 1.5rem;
+      }
+      .search-form {
+        flex-direction: column;
+      }
+      .form-group {
+        min-width: 100%;
+      }
+      .nav-links {
+        flex-direction: column;
+        align-items: center;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>🏥 Nearby Healthcare Finder</h1>
+      <h1>🏥 MedExplain Healthcare Dashboard</h1>
       <p>Powered by <strong>HTML5 Browser Geolocation API</strong> & Live OpenStreetMap / Government Datasets</p>
+      <div class="nav-links">
+        <a href="/voice-consult.html">🎙️ Voice Consultation</a>
+        <a href="/teleconsult.html">📹 Video Teleconsultation</a>
+      </div>
     </header>
 
+    <!-- Section 1: GPS-based Search -->
     <div class="geo-card">
+      <div class="section-title center">📍 Find Hospitals Near My Exact Location</div>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 14px;">Uses your browser's GPS to find the closest hospitals</p>
       <button id="locateBtn" class="btn" onclick="requestBrowserLocation()">
         <span>📍 Find Hospitals Near My Exact Location</span>
       </button>
@@ -298,6 +443,40 @@
     <div id="emptyState" class="empty-state">
       <p>No location detected yet. Click the button above to request browser geolocation.</p>
     </div>
+
+    <!-- Section 2: District / State Search -->
+    <div class="geo-card" style="text-align: left;">
+      <div class="section-title">🔍 Search Hospitals by District / State</div>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">Browse the official India hospital dataset by state and district name</p>
+
+      <div class="search-form">
+        <div class="form-group">
+          <label for="stateSelect">State</label>
+          <select id="stateSelect">
+            <option value="">All States</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="districtInput">District / City</label>
+          <input type="text" id="districtInput" placeholder="e.g. Chennai, Coimbatore..." />
+        </div>
+        <div class="form-group" style="flex: 0 0 auto; min-width: auto;">
+          <label>&nbsp;</label>
+          <button id="searchBtn" class="btn" onclick="searchByDistrict()">🔍 Search Hospitals</button>
+        </div>
+      </div>
+
+      <!-- District search results -->
+      <div id="districtResultsContainer" style="display: none; margin-top: 24px;">
+        <div id="districtResultsInfo" class="district-results-info"></div>
+        <div id="districtResultsList" class="hospital-list"></div>
+        <div id="districtPagination" class="pagination" style="display: none;">
+          <button id="prevPageBtn" onclick="changePage(-1)">← Previous</button>
+          <span id="pageInfo">Page 1</span>
+          <button id="nextPageBtn" onclick="changePage(1)">Next →</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -305,6 +484,10 @@
     let currentLon = null;
     let osmResults = [];
     let datasetResults = [];
+
+    // District search state
+    let districtCurrentPage = 1;
+    let districtTotalPages = 1;
 
     /**
      * Trigger HTML5 Browser Geolocation API
@@ -389,13 +572,29 @@
         console.error('OSM fetch error:', err);
       }
 
-      // 2. Fetch Official India/TN Dataset Hospitals
+      // 2. Fetch Official India/TN Dataset Hospitals (larger radius since TN data uses district-center coords)
       try {
-        const dsRes = await fetch(`/api/india/hospitals/nearby?lat=${lat}&lon=${lon}&radius=50&limit=6`);
+        const dsRes = await fetch(`/api/india/hospitals/nearby?lat=${lat}&lon=${lon}&radius=100&limit=10`);
         const dsJson = await dsRes.json();
         datasetResults = dsJson.data || [];
         document.getElementById('datasetCount').textContent = datasetResults.length;
         renderDatasetList(datasetResults);
+        
+        // If dataset returned 0 results, it may still be loading — retry once after 3 seconds
+        if (datasetResults.length === 0) {
+          setTimeout(async () => {
+            try {
+              const retryRes = await fetch(`/api/india/hospitals/nearby?lat=${lat}&lon=${lon}&radius=100&limit=10`);
+              const retryJson = await retryRes.json();
+              const retryResults = retryJson.data || [];
+              if (retryResults.length > 0) {
+                datasetResults = retryResults;
+                document.getElementById('datasetCount').textContent = datasetResults.length;
+                renderDatasetList(datasetResults);
+              }
+            } catch (e) { console.warn('Dataset retry failed:', e); }
+          }, 3000);
+        }
       } catch (err) {
         console.error('Dataset fetch error:', err);
       }
@@ -478,6 +677,131 @@
         dsList.style.display = 'grid';
       }
     }
+
+    /* ========== District / State Search ========== */
+
+    async function loadStatesDropdown() {
+      try {
+        const res = await fetch('/api/india/hospitals/stats');
+        const json = await res.json();
+        const select = document.getElementById('stateSelect');
+
+        if (json.states && Array.isArray(json.states)) {
+          json.states.sort().forEach(state => {
+            const opt = document.createElement('option');
+            opt.value = state;
+            opt.textContent = state;
+            select.appendChild(opt);
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load states:', err);
+      }
+    }
+
+    async function searchByDistrict(page) {
+      const state = document.getElementById('stateSelect').value;
+      const district = document.getElementById('districtInput').value.trim();
+      const searchBtn = document.getElementById('searchBtn');
+
+      if (page) {
+        districtCurrentPage = page;
+      } else {
+        districtCurrentPage = 1;
+      }
+
+      searchBtn.disabled = true;
+      searchBtn.textContent = 'Searching...';
+
+      try {
+        const params = new URLSearchParams();
+        if (state) params.set('state', state);
+        if (district) params.set('district', district);
+        params.set('limit', '20');
+        params.set('page', districtCurrentPage.toString());
+
+        const res = await fetch(`/api/india/hospitals/search?${params}`);
+        const json = await res.json();
+
+        const resultsContainer = document.getElementById('districtResultsContainer');
+        const resultsList = document.getElementById('districtResultsList');
+        const resultsInfo = document.getElementById('districtResultsInfo');
+        const pagination = document.getElementById('districtPagination');
+
+        resultsContainer.style.display = 'block';
+
+        const hospitals = json.data || [];
+        const total = json.total || hospitals.length;
+        districtTotalPages = json.totalPages || Math.ceil(total / 20) || 1;
+
+        resultsInfo.textContent = `Found ${total} hospital${total !== 1 ? 's' : ''}${state ? ' in ' + state : ''}${district ? ', district: ' + district : ''}`;
+
+        if (!hospitals.length) {
+          resultsList.innerHTML = '<div class="empty-state">No hospitals found matching your search criteria.</div>';
+          pagination.style.display = 'none';
+          return;
+        }
+
+        resultsList.innerHTML = hospitals.map(h => `
+          <div class="hospital-card">
+            <div class="card-header">
+              <div class="hospital-name">${h.name || 'Unknown Hospital'}</div>
+              ${h.distanceKm ? `<div class="distance-tag">${h.distanceKm} km away</div>` : ''}
+            </div>
+            <div class="meta-row">
+              <span class="badge ${(h.category || '').toLowerCase() === 'government' ? 'badge-govt' : 'badge-pvt'}">${h.category || h.type || 'Hospital'}</span>
+              <span>📍 ${h.city || h.district || ''}, ${h.state || ''}</span>
+            </div>
+            ${h.helpline && h.helpline !== 'Not available' ? `<div class="contact">📞 Helpline: ${h.helpline}</div>` : ''}
+            ${h.beds ? `
+              <div class="bed-info">
+                ${h.beds.total ? `<span>Total Beds: <strong>${h.beds.total}</strong></span>` : ''}
+                ${h.beds.vacant ? `<span>Vacant: <strong style="color:#16a34a">${h.beds.vacant}</strong></span>` : ''}
+                ${h.beds.oxygenBeds ? `<span>Oxygen: <strong>${h.beds.oxygenBeds}</strong></span>` : ''}
+                ${h.beds.icuBeds ? `<span>ICU: <strong>${h.beds.icuBeds}</strong></span>` : ''}
+              </div>
+            ` : ''}
+            <div class="actions">
+              <a class="action-link" target="_blank" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((h.name || '') + ' ' + (h.city || h.district || ''))}">View Directions →</a>
+            </div>
+          </div>
+        `).join('');
+
+        // Pagination
+        if (districtTotalPages > 1) {
+          pagination.style.display = 'flex';
+          document.getElementById('pageInfo').textContent = `Page ${districtCurrentPage} of ${districtTotalPages}`;
+          document.getElementById('prevPageBtn').disabled = districtCurrentPage <= 1;
+          document.getElementById('nextPageBtn').disabled = districtCurrentPage >= districtTotalPages;
+        } else {
+          pagination.style.display = 'none';
+        }
+      } catch (err) {
+        console.error('District search error:', err);
+        document.getElementById('districtResultsContainer').style.display = 'block';
+        document.getElementById('districtResultsList').innerHTML = `<div class="empty-state" style="color: #dc2626;">Search failed: ${err.message}. Please try again.</div>`;
+      } finally {
+        searchBtn.disabled = false;
+        searchBtn.textContent = '🔍 Search Hospitals';
+      }
+    }
+
+    function changePage(delta) {
+      const newPage = districtCurrentPage + delta;
+      if (newPage >= 1 && newPage <= districtTotalPages) {
+        searchByDistrict(newPage);
+      }
+    }
+
+    // Load states on page load
+    document.addEventListener('DOMContentLoaded', loadStatesDropdown);
+
+    // Allow Enter key to trigger search in district input
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('districtInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') searchByDistrict();
+      });
+    });
   </script>
 </body>
 </html>

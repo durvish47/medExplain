@@ -4,6 +4,7 @@ import https from 'https';
 import os from 'os';
 import selfsigned from 'selfsigned';
 import { createApp } from './app.js';
+import githubDatasetService from '../../services/githubDatasetService.js';
 
 const app = createApp();
 const PORT = Number(process.env.PORT || 3000);
@@ -53,3 +54,10 @@ try {
 } catch (err) {
   console.warn('[HTTPS Server] Could not start HTTPS listener:', err.message);
 }
+
+// 3. Pre-load GitHub hospital dataset in background (warm cache for first user query)
+githubDatasetService.loadDataset().then(hospitals => {
+  console.log(`📊 Hospital dataset pre-loaded: ${hospitals.length} hospitals ready`);
+}).catch(err => {
+  console.warn('[Dataset Preload] Will load on first request:', err.message);
+});
