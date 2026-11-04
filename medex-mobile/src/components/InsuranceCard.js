@@ -28,7 +28,7 @@ export const InsuranceCard = ({ plan }) => {
   };
 
   const typeLabel = { government: 'Gov.', private: 'Private', psu: 'PSU' };
-  const typeBg    = { government: '#DCFCE7', private: '#EDE9FE', psu: '#FEF3C7' };
+  const typeBg = { government: '#DCFCE7', private: '#EDE9FE', psu: '#FEF3C7' };
   const typeColor = { government: '#15803D', private: '#6D28D9', psu: '#B45309' };
 
   return (

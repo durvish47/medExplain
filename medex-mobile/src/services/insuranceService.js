@@ -214,10 +214,10 @@ const MOCK_PROVIDERS = [
 ];
 
 const MOCK_TIPS = [
-  { icon: 'bulb-outline',         text: 'Compare plans annually — your health needs change over time.' },
+  { icon: 'bulb-outline', text: 'Compare plans annually — your health needs change over time.' },
   { icon: 'document-text-outline', text: 'Always disclose pre-existing conditions to avoid claim rejection.' },
-  { icon: 'cash-outline',          text: 'Higher deductible = lower premium. Choose wisely based on your risk.' },
-  { icon: 'shield-outline',        text: "Check if your preferred hospital is in the insurer's network." },
+  { icon: 'cash-outline', text: 'Higher deductible = lower premium. Choose wisely based on your risk.' },
+  { icon: 'shield-outline', text: "Check if your preferred hospital is in the insurer's network." },
 ];
 
 // ─────────────────────────────────────────────
@@ -226,16 +226,100 @@ const MOCK_TIPS = [
 
 export const PROVIDER_TYPE_META = {
   government: { label: 'Government', color: '#065F46', colorLight: '#D1FAE5', badgeBg: '#DCFCE7', badgeColor: '#15803D', icon: 'shield-checkmark' },
-  private:    { label: 'Private',    color: '#6D28D9', colorLight: '#EDE9FE', badgeBg: '#EDE9FE', badgeColor: '#6D28D9', icon: 'briefcase'        },
-  psu:        { label: 'PSU',        color: '#B45309', colorLight: '#FEF3C7', badgeBg: '#FEF3C7', badgeColor: '#B45309', icon: 'ribbon'            },
+  private: { label: 'Private', color: '#6D28D9', colorLight: '#EDE9FE', badgeBg: '#EDE9FE', badgeColor: '#6D28D9', icon: 'briefcase' },
+  psu: { label: 'PSU', color: '#B45309', colorLight: '#FEF3C7', badgeBg: '#FEF3C7', badgeColor: '#B45309', icon: 'ribbon' },
 };
+
+// ─────────────────────────────────────────────
+// REMOTE FETCH FUNCTIONS (Supabase)
+// ─────────────────────────────────────────────
+
+/**
+ * Generic helper to run a Supabase query and fall back to mock data.
+ */
+async function safeQuery(queryPromise, fallback) {
+  if (!supabase) return fallback;
+  const { data, error } = await queryPromise;
+  if (error) {
+    console.warn('Supabase query failed, falling back to mock data:', error);
+    return fallback;
+  }
+  return data;
+}
+
+/** Fetch all insurance providers from Supabase. */
+export async function fetchProviders() {
+  return safeQuery(supabase.from('insurance_providers').select('*').order('provider_name'), MOCK_PROVIDERS);
+}
+
+/** Fetch plans for a given provider. */
+export async function fetchPlansByProvider(providerId) {
+  return safeQuery(
+    supabase.from('insurance_plans').select('*').eq('provider_id', providerId),
+    []
+  );
+}
+
+/** Fetch pricing details for a plan. */
+export async function fetchPricingByPlan(planId) {
+  return safeQuery(
+    supabase.from('plan_pricing').select('*').eq('plan_id', planId),
+    []
+  );
+}
+
+/** Fetch benefits for a plan. */
+export async function fetchBenefitsByPlan(planId) {
+  return safeQuery(
+    supabase.from('plan_benefits').select('*').eq('plan_id', planId),
+    []
+  );
+}
+
+/** Fetch restrictions for a plan. */
+export async function fetchRestrictionsByPlan(planId) {
+  return safeQuery(
+    supabase.from('plan_restrictions').select('*').eq('plan_id', planId),
+    []
+  );
+}
+
+/**
+ * Retrieve a full provider object with nested plans, each enriched with pricing,
+ * benefits and restrictions.
+ */
+export async function getProviderDetail(providerId) {
+  const providers = await fetchProviders();
+  console.log(providers);
+  const provider = providers.find(p => p.provider_id === providerId);
+  if (!provider) return null;
+
+  const plans = await fetchPlansByProvider(providerId);
+  const enrichedPlans = await Promise.all(
+    plans.map(async plan => {
+      const [pricing, benefits, restrictions] = await Promise.all([
+        fetchPricingByPlan(plan.plan_id),
+        fetchBenefitsByPlan(plan.plan_id),
+        fetchRestrictionsByPlan(plan.plan_id),
+      ]);
+      return { ...plan, pricing: pricing[0] || {}, benefits, restrictions };
+    })
+  );
+
+  return { ...provider, plans: enrichedPlans };
+}
 
 // ─────────────────────────────────────────────
 // HELPER – SUPABASE JOIN QUERY
 // ─────────────────────────────────────────────
 
 async function fetchProvidersFromSupabase() {
-  if (!supabase) return null;
+  if (!supabase) {
+    console.warn(
+      '[insuranceService] Supabase client is not initialized. Please ensure EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY are configured in your .env file.'
+    );
+    return null;
+  }
 
   try {
     // 1. Fetch providers
@@ -243,32 +327,51 @@ async function fetchProvidersFromSupabase() {
       .from('insurance_providers')
       .select('*')
       .order('provider_name');
-    if (pErr || !providers?.length) return null;
 
-    // 2. Fetch plans
+    if (pErr) {
+      console.error('[insuranceService] Error fetching insurance_providers:', pErr);
+      return null;
+    }
+
+    if (!providers || providers.length === 0) {
+      console.warn('[insuranceService] Supabase returned 0 insurance_providers. Check table data and Row Level Security (RLS) policies.');
+      return null;
+    }
+
+    // 2. Fetch plans (optional - providers can still be displayed if plans are not yet added)
     const { data: plans, error: plErr } = await supabase
       .from('insurance_plans')
       .select('*');
-    if (plErr) return null;
 
-    const planIds = (plans || []).map(p => p.plan_id);
+    if (plErr) {
+      console.warn('[insuranceService] Could not fetch insurance_plans (or table empty):', plErr.message);
+    }
 
-    // 3. Fetch benefits, pricing, restrictions in parallel
-    const [bRes, prRes, rRes] = await Promise.all([
-      supabase.from('plan_benefits').select('*').in('plan_id', planIds),
-      supabase.from('plan_pricing').select('*').in('plan_id', planIds),
-      supabase.from('plan_restrictions').select('*').in('plan_id', planIds),
-    ]);
+    const planList = plans || [];
+    const planIds = planList.map(p => p.plan_id).filter(Boolean);
 
-    const benefits     = bRes.data  || [];
-    const pricing      = prRes.data || [];
-    const restrictions = rRes.data  || [];
+    // 3. Fetch benefits, pricing, restrictions in parallel ONLY if planIds exist
+    let benefits = [];
+    let pricing = [];
+    let restrictions = [];
+
+    if (planIds.length > 0) {
+      const [bRes, prRes, rRes] = await Promise.all([
+        supabase.from('plan_benefits').select('*').in('plan_id', planIds),
+        supabase.from('plan_pricing').select('*').in('plan_id', planIds),
+        supabase.from('plan_restrictions').select('*').in('plan_id', planIds),
+      ]);
+
+      benefits = bRes.data || [];
+      pricing = prRes.data || [];
+      restrictions = rRes.data || [];
+    }
 
     // 4. Join data
-    const enrichedPlans = (plans || []).map(plan => ({
+    const enrichedPlans = planList.map(plan => ({
       ...plan,
-      benefits:     benefits.filter(b => b.plan_id === plan.plan_id),
-      pricing:      pricing.find(p => p.plan_id === plan.plan_id) || null,
+      benefits: benefits.filter(b => b.plan_id === plan.plan_id),
+      pricing: pricing.find(p => p.plan_id === plan.plan_id) || null,
       restrictions: restrictions.filter(r => r.plan_id === plan.plan_id),
     }));
 
@@ -277,7 +380,8 @@ async function fetchProvidersFromSupabase() {
       type: prov.type || 'private',
       plans: enrichedPlans.filter(pl => pl.provider_id === prov.provider_id),
     }));
-  } catch {
+  } catch (err) {
+    console.error('[insuranceService] Unexpected error in fetchProvidersFromSupabase:', err);
     return null;
   }
 }
@@ -287,6 +391,13 @@ async function fetchProvidersFromSupabase() {
 // ─────────────────────────────────────────────
 
 export const insuranceService = {
+  fetchProviders,
+  fetchPlansByProvider,
+  fetchPricingByPlan,
+  fetchBenefitsByPlan,
+  fetchRestrictionsByPlan,
+  getProviderDetail,
+
   /**
    * Returns full provider list with nested plans/benefits/pricing/restrictions.
    * Tries Supabase first; falls back to mock data.
@@ -327,7 +438,7 @@ export const insuranceService = {
           ...plan,
           provider_name: prov.provider_name,
           provider_type: prov.type || 'private',
-          contact_info:  prov.contact_info,
+          contact_info: prov.contact_info,
         });
       });
     });
@@ -337,3 +448,5 @@ export const insuranceService = {
 
   getTips: () => MOCK_TIPS,
 };
+
+export default insuranceService;
