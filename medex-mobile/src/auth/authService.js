@@ -1,16 +1,52 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../config/supabase';
 import { hashPassword } from './cryptoUtils';
 
-// Simulated latency used when Supabase isn't configured (demo mode).
-const DEMO_LATENCY_MS = 600;
+// Login data is kept on this device for now (no network needed).
+// Set to false to use the Supabase public.users table instead.
+export const USE_LOCAL_AUTH = true;
+const useRemote = () => !USE_LOCAL_AUTH && !!supabase;
+
+const LOCAL_USERS_KEY = '@medex_local_users';
+const LATENCY_MS = 400; // small delay so the loading state is visible
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// In-memory demo store so signup -> login works seamlessly even without an active DB connection
-const demoUsers = new Map();
+const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
+
+// ── Local store ─────────────────────────────────────────────────────────────
+// Users are kept in an object keyed by email, persisted to AsyncStorage so they
+// survive app reloads. Passwords are stored only as hashes.
+let localCache = null;
+
+const loadLocalUsers = async () => {
+  if (localCache) return localCache;
+  try {
+    const raw = await AsyncStorage.getItem(LOCAL_USERS_KEY);
+    localCache = raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    console.error('Could not read local users', e);
+    localCache = {};
+  }
+  return localCache;
+};
+
+const saveLocalUsers = async (users) => {
+  try {
+    await AsyncStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
+  } catch (e) {
+    console.error('Could not save local users', e);
+    throw new Error('We could not save your account on this device. Please try again.');
+  }
+};
+
+const nextLocalId = (users) =>
+  Object.values(users).reduce((max, u) => Math.max(max, u.id || 0), 0) + 1;
+
+const toPublicUser = (u) => ({ id: u.id, email: u.email, role: u.role });
 
 /**
- * Authentication Service wired directly to:
- * 
+ * Authentication service. Mirrors the public.users table:
+ *
  *   create table public.users (
  *     id serial not null,
  *     email character varying(100) not null,
@@ -20,166 +56,100 @@ const demoUsers = new Map();
  *     constraint users_pkey primary key (id),
  *     constraint users_email_key unique (email)
  *   );
- * 
- * Users are stored in public.users on signup, and verified against it on login.
+ *
+ * In local mode the same shape is stored on the device. In remote mode the
+ * rows go to public.users in Supabase.
  */
 export const authService = {
-  /**
-   * Registers a new user directly into public.users table.
-   */
+  /** Creates an account. Throws a user-readable Error on failure. */
   async signUp({ email, password, role = 'patient' }) {
-    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail) throw new Error('Please enter a valid email address.');
     if (!password) throw new Error('Please enter a password.');
 
     const passwordHash = await hashPassword(password);
 
-    // Offline / Demo fallback when Supabase keys are not configured in .env
-    if (!supabase) {
-      await wait(DEMO_LATENCY_MS);
-      if (demoUsers.has(normalizedEmail)) {
+    if (!useRemote()) {
+      await wait(LATENCY_MS);
+      const users = await loadLocalUsers();
+      if (users[normalizedEmail]) {
         throw new Error('An account with this email already exists. Please log in.');
       }
-      const fakeUser = {
-        id: demoUsers.size + 1,
+      users[normalizedEmail] = {
+        id: nextLocalId(users),
         email: normalizedEmail,
         password_hash: passwordHash,
         role: role || 'patient',
         created_at: new Date().toISOString(),
       };
-      demoUsers.set(normalizedEmail, fakeUser);
-      return { user: { id: fakeUser.id, email: fakeUser.email, role: fakeUser.role } };
+      await saveLocalUsers(users);
+      return { user: toPublicUser(users[normalizedEmail]) };
     }
 
-    // 1. Check if email is already registered in public.users
-    const { data: existing, error: checkError } = await supabase
-      .from('users')
-      .select('id, email')
-      .ilike('email', normalizedEmail)
-      .maybeSingle();
-
-    if (existing) {
-      throw new Error('An account with this email already exists. Please log in.');
-    }
-
-    // 2. Insert into public.users
+    // Remote: insert into public.users. The unique constraint on email catches duplicates.
     const { data, error } = await supabase
       .from('users')
-      .insert([
-        {
-          email: normalizedEmail,
-          password_hash: passwordHash,
-          role: role || 'patient',
-        },
-      ])
+      .insert([{ email: normalizedEmail, password_hash: passwordHash, role: role || 'patient' }])
       .select('id, email, role, created_at')
       .single();
 
     if (error) {
-      if (
-        error.code === '23505' ||
-        error.message?.includes('users_email_key') ||
-        error.message?.includes('duplicate key')
-      ) {
+      if (error.code === '23505' || error.message?.includes('users_email_key') || error.message?.includes('duplicate key')) {
         throw new Error('An account with this email already exists. Please log in.');
       }
       throw new Error(error.message || 'We could not create your account. Please try again.');
     }
-
-    // Also cache locally for immediate offline re-login
-    demoUsers.set(normalizedEmail, {
-      id: data.id,
-      email: data.email,
-      password_hash: passwordHash,
-      role: data.role,
-    });
-
-    return {
-      user: {
-        id: data.id,
-        email: data.email,
-        role: data.role,
-      },
-    };
+    return { user: toPublicUser(data) };
   },
 
-  /**
-   * Logs in by verifying credentials against public.users table.
-   */
+  /** Verifies credentials. Throws a user-readable Error on failure. */
   async signIn({ email, password }) {
-    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail) throw new Error('Please enter your email address.');
     if (!password) throw new Error('Please enter your password.');
 
     const passwordHash = await hashPassword(password);
 
-    // Offline / Demo fallback
-    if (!supabase) {
-      await wait(DEMO_LATENCY_MS);
-      const demoUser = demoUsers.get(normalizedEmail);
-      if (!demoUser) {
+    if (!useRemote()) {
+      await wait(LATENCY_MS);
+      const users = await loadLocalUsers();
+      const user = users[normalizedEmail];
+      if (!user) {
         throw new Error('No account found with this email. Please check your email or create an account.');
       }
-      if (demoUser.password_hash && demoUser.password_hash !== passwordHash) {
+      if (user.password_hash !== passwordHash) {
         throw new Error('Incorrect password. Please try again.');
       }
-      return { user: { id: demoUser.id, email: demoUser.email, role: demoUser.role } };
+      return { user: toPublicUser(user) };
     }
 
-    // 1. Query user from public.users table (case-insensitive email matching)
     const { data: user, error } = await supabase
       .from('users')
       .select('id, email, password_hash, role')
       .ilike('email', normalizedEmail)
       .maybeSingle();
 
-    if (error) {
-      // If table query fails, check cached demo user before throwing
-      const cached = demoUsers.get(normalizedEmail);
-      if (cached && cached.password_hash === passwordHash) {
-        return { user: { id: cached.id, email: cached.email, role: cached.role } };
-      }
-      throw new Error(error.message || 'Error communicating with database.');
-    }
-
+    if (error) throw new Error(error.message || 'Error communicating with database.');
     if (!user) {
-      // Check cached user
-      const cached = demoUsers.get(normalizedEmail);
-      if (cached) {
-        if (cached.password_hash !== passwordHash) {
-          throw new Error('Incorrect password. Please try again.');
-        }
-        return { user: { id: cached.id, email: cached.email, role: cached.role } };
-      }
       throw new Error('No account found with this email. Please check your email or create an account.');
     }
-
-    // 2. Verify hashed password against stored password_hash
     if (user.password_hash && user.password_hash !== passwordHash) {
       throw new Error('Incorrect password. Please try again.');
     }
-
-    return {
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-      },
-    };
+    return { user: toPublicUser(user) };
   },
 
-  /**
-   * Updates user role in public.users table.
-   */
+  /** Saves the role chosen during onboarding. Returns null if it could not be saved. */
   async updateUserRole({ email, role }) {
-    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail || !role) return null;
 
-    const cached = demoUsers.get(normalizedEmail);
-    if (cached) cached.role = role;
-
-    if (!supabase) {
-      return { id: cached?.id || 1, email: normalizedEmail, role };
+    if (!useRemote()) {
+      const users = await loadLocalUsers();
+      if (!users[normalizedEmail]) return null;
+      users[normalizedEmail].role = role;
+      await saveLocalUsers(users);
+      return toPublicUser(users[normalizedEmail]);
     }
 
     const { data, error } = await supabase
@@ -193,19 +163,17 @@ export const authService = {
       console.warn('Failed to update role in public.users:', error.message);
       return null;
     }
-
     return data;
   },
 
-  /**
-   * Checks if an email is available in public.users.
-   */
+  /** True when no account exists for this email yet. */
   async isEmailAvailable(email) {
-    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail) return false;
 
-    if (!supabase) {
-      return !demoUsers.has(normalizedEmail);
+    if (!useRemote()) {
+      const users = await loadLocalUsers();
+      return !users[normalizedEmail];
     }
 
     const { data, error } = await supabase

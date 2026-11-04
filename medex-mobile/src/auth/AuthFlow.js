@@ -5,6 +5,7 @@ import { OnboardingScreen } from '../screens/auth/OnboardingScreen';
 import { ProfileScreen } from '../screens/auth/ProfileScreen';
 import { EmergencyContactScreen } from '../screens/auth/EmergencyContactScreen';
 import { StepTransition } from '../components/auth/StepTransition';
+import { authService } from './authService';
 
 // Step keys. Each maps to a route the flow is designed around.
 export const AUTH_STEPS = {
