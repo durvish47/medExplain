@@ -1,4 +1,15 @@
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import os from 'os';
+import agoraPkg from 'agora-token';
+const { RtcTokenBuilder, RtcRole } = agoraPkg;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+import osmService from '../../services/osmService.js';
+import githubDatasetService from '../../services/githubDatasetService.js';
 import cors from 'cors';
 import helmet from 'helmet';
 import multer from 'multer';
@@ -34,75 +45,13 @@ const providers = ['openrouter', 'ollama', 'google-ai-studio', 'groq'];
 const providerLabel = { openrouter: 'OpenRouter', ollama: 'Ollama (local)', 'google-ai-studio': 'Google AI Studio', groq: 'Groq' };
 const providerPrompt = (language) => `${SYSTEM_PROMPT}\n\nReturn both English and Tamil fields. The user's preferred display language is ${language}.`;
 
-// Hardcoded mock data for hospitals in Tamil Nadu (Chennai & surrounding areas)
-const hospitals = [
-  {
-    id: 1,
-    name: "Sir Ivan Stedeford Hospital",
-    rating: 4.5,
-    totalReviews: 2150,
-    distanceKm: 3.2,
-    address: "Chennai - Tiruvallur High Rd, Ambattur, Chennai, Tamil Nadu 600053",
-    contact: "+91 44 2638 0303",
-    emergencyAvailable: true,
-    location: { latitude: 13.1118, longitude: 80.1583 }
-  },
-  {
-    id: 2,
-    name: "Sri Ramachandra Medical Centre (SRMC)",
-    rating: 4.8,
-    totalReviews: 5420,
-    distanceKm: 9.8,
-    address: "No.1 Ramachandra Nagar, Porur, Chennai, Tamil Nadu 600116",
-    contact: "+91 44 4592 8500",
-    emergencyAvailable: true,
-    location: { latitude: 13.0392, longitude: 80.1485 }
-  },
-  {
-    id: 3,
-    name: "MIOT International",
-    rating: 4.6,
-    totalReviews: 4890,
-    distanceKm: 11.4,
-    address: "4/112, Mount Poonamallee Rd, Manapakkam, Chennai, Tamil Nadu 600089",
-    contact: "+91 44 4200 2288",
-    emergencyAvailable: true,
-    location: { latitude: 13.0163, longitude: 80.1802 }
-  },
-  {
-    id: 4,
-    name: "Apollo Hospitals",
-    rating: 4.7,
-    totalReviews: 8900,
-    distanceKm: 14.5,
-    address: "21, Greams Lane, Off Greams Road, Chennai, Tamil Nadu 600006",
-    contact: "+91 44 2829 0200",
-    emergencyAvailable: true,
-    location: { latitude: 13.0604, longitude: 80.2523 }
-  },
-  {
-    id: 5,
-    name: "Rajiv Gandhi Government General Hospital",
-    rating: 4.2,
-    totalReviews: 3100,
-    distanceKm: 18.1,
-    address: "EVR Periyar Salai, Park Town, Chennai, Tamil Nadu 600003",
-    contact: "+91 44 2530 5000",
-    emergencyAvailable: true,
-    location: { latitude: 13.0827, longitude: 80.2750 }
-  },
-  {
-    id: 6,
-    name: "Kauvery Hospital",
-    rating: 4.7,
-    totalReviews: 3450,
-    distanceKm: 19.5,
-    address: "199, Luz Church Road, Mylapore, Chennai, Tamil Nadu 600004",
-    contact: "+91 44 4000 6000",
-    emergencyAvailable: true,
-    location: { latitude: 13.0375, longitude: 80.2586 }
-  }
-];
+// Live Geolocation Defaults (Chennai / Semmencheri region)
+const DEFAULT_LAT = parseFloat(process.env.DEFAULT_LATITUDE) || 13.0827;
+const DEFAULT_LON = parseFloat(process.env.DEFAULT_LONGITUDE) || 80.2707;
+const DEFAULT_RADIUS = parseInt(process.env.SEARCH_RADIUS, 10) || 10000;
+
+// All hardcoded hospital data removed — hospitals are now fetched 100% live
+// from OpenStreetMap Overpass API and GitHub datasets based on user's GPS location
 
 async function getPdfText(buffer) {
   const task = pdfjsLib.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true });
@@ -137,14 +86,85 @@ async function postJson(fetchImpl, url, headers, body, timeoutMs = 90000) {
 export function createApp({ env = process.env, analyzePdf, fetchImpl = globalThis.fetch, genAiClientFactory = (apiKey) => new GoogleGenAI({ apiKey }) } = {}) {
   const app = express();
   app.disable('x-powered-by');
-  app.use(helmet());
+  app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false
+  }));
   
   // Allow all origins or configured frontend
   app.use(cors());
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
+  // Serve static public assets (Teleconsultation UI & Hospital Dashboard)
+  app.use(express.static(path.resolve(__dirname, '../../public')));
+
   app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'MedEx Unified API Platform' }));
+
+  // ============================================
+  // Agora 1-on-1 Video Teleconsultation Endpoints
+  // ============================================
+  app.get('/api/agora/token', (req, res) => {
+    try {
+      const channelName = req.query.channelName || 'rural-teleconsult-1';
+      const uid = parseInt(req.query.uid, 10) || 0;
+      const role = req.query.role === 'subscriber' ? RtcRole.SUBSCRIBER : RtcRole.PUBLISHER;
+      const expireTime = parseInt(req.query.expireTime, 10) || 3600;
+      const currentTs = Math.floor(Date.now() / 1000);
+      const privilegeExpiredTs = currentTs + expireTime;
+      const appId = env.AGORA_APP_ID || process.env.AGORA_APP_ID || 'ebd252d0dfa746fe9ae1ba13c34fb30f';
+      const appCert = env.AGORA_APP_CERTIFICATE || process.env.AGORA_APP_CERTIFICATE || '2f3dc21fdea242b5b07036cd50e0fcd5';
+
+      const token = RtcTokenBuilder.buildTokenWithUid(
+        appId,
+        appCert,
+        channelName,
+        uid,
+        role,
+        privilegeExpiredTs,
+        privilegeExpiredTs
+      );
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Agora RTC token generated successfully',
+        data: {
+          token,
+          appId,
+          channelName,
+          uid,
+          role: req.query.role || 'publisher',
+          expiresIn: expireTime,
+          expiresAt: new Date(privilegeExpiredTs * 1000).toISOString()
+        }
+      });
+    } catch (error) {
+      console.error('[Agora Token] Error:', error.message);
+      res.status(500).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+  });
+
+  app.get('/api/agora/config', (_req, res) => {
+    const appId = env.AGORA_APP_ID || process.env.AGORA_APP_ID || 'ebd252d0dfa746fe9ae1ba13c34fb30f';
+    res.status(200).json({
+      status: 'success',
+      appId,
+      defaultChannel: 'rural-teleconsult-1',
+      adaptiveBitrateSettings: {
+        dualStreamMode: true,
+        lowStreamProfile: {
+          width: 160,
+          height: 120,
+          framerate: 15,
+          bitrate: 45
+        },
+        fallbackOption: 2
+      }
+    });
+  });
   
   app.get('/api/v1/config', (_req, res) => {
     const defaultProvider = providers.includes(env.AI_PROVIDER) ? env.AI_PROVIDER : 'groq';
@@ -248,22 +268,195 @@ export function createApp({ env = process.env, analyzePdf, fetchImpl = globalThi
     } catch (error) { next(error); }
   });
 
-  // 2. Healthcare & Hospitals Directory API
-  app.get('/api/hospitals', (req, res) => {
-    const { sortBy, limit } = req.query;
-    let results = [...hospitals];
-    if (sortBy === 'rating') results.sort((a, b) => b.rating - a.rating);
-    else if (sortBy === 'distance') results.sort((a, b) => a.distanceKm - b.distanceKm);
-    const parsedLimit = parseInt(limit, 10);
-    if (!isNaN(parsedLimit) && parsedLimit > 0) results = results.slice(0, parsedLimit);
-    res.status(200).json({ status: 'success', count: results.length, data: results });
+  // ============================================
+  // 2. Real Dynamic Healthcare & Hospitals API (Zero Hardcoding)
+  // ============================================
+
+  /**
+   * GET /api/hospitals
+   * Fetch nearby hospitals dynamically from OpenStreetMap (Overpass API)
+   * Calculates exact Haversine distance from user's current GPS coordinates
+   */
+  app.get('/api/hospitals', async (req, res) => {
+    try {
+      const lat = parseFloat(req.query.lat) || DEFAULT_LAT;
+      const lon = parseFloat(req.query.lon) || DEFAULT_LON;
+      const radius = parseInt(req.query.radius, 10) || DEFAULT_RADIUS;
+      const limit = parseInt(req.query.limit, 10) || 6;
+      const sortBy = req.query.sortBy || 'distance';
+
+      console.log(`[Hospitals API] Live search near (${lat}, ${lon}), radius: ${radius}m, limit: ${limit}`);
+
+      let hospitalsList = [];
+      try {
+        hospitalsList = await osmService.fetchNearbyHospitals(lat, lon, radius, limit);
+      } catch (osmError) {
+        console.warn('[Hospitals API] OSM search warning, using live GitHub dataset fallback:', osmError.message);
+        const fallbackResults = await githubDatasetService.findNearbyFromDataset(lat, lon, radius / 1000, limit);
+        hospitalsList = fallbackResults.map((h, i) => ({
+          id: i + 1,
+          osmId: null,
+          name: h.name,
+          distanceKm: h.distanceKm,
+          address: `${h.city || h.district || 'Tamil Nadu'}, India`,
+          contact: h.helpline || '+91 Emergency (108)',
+          emergencyAvailable: true,
+          operatorType: h.category,
+          location: h.location,
+          source: h.source
+        }));
+      }
+
+      if (sortBy === 'name') {
+        hospitalsList.sort((a, b) => a.name.localeCompare(b.name));
+      } else {
+        hospitalsList.sort((a, b) => a.distanceKm - b.distanceKm);
+      }
+
+      res.status(200).json({
+        status: 'success',
+        source: hospitalsList[0]?.source || 'OpenStreetMap (Live Overpass API)',
+        searchCoordinates: { latitude: lat, longitude: lon },
+        searchRadiusMeters: radius,
+        count: hospitalsList.length,
+        data: hospitalsList
+      });
+    } catch (error) {
+      console.error('[Hospitals API] Error:', error.message);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to retrieve live nearby hospitals',
+        error: error.message
+      });
+    }
   });
 
-  app.get('/api/hospitals/:id', (req, res) => {
-    const hospitalId = parseInt(req.params.id, 10);
-    const hospital = hospitals.find((h) => h.id === hospitalId);
-    if (!hospital) return res.status(404).json({ status: 'fail', message: `Hospital with ID ${hospitalId} not found` });
-    res.status(200).json({ status: 'success', data: hospital });
+  /**
+   * GET /api/india/hospitals/nearby
+   * Fetch nearby hospitals from official Tamil Nadu & India GitHub live dataset
+   */
+  app.get('/api/india/hospitals/nearby', async (req, res) => {
+    try {
+      const lat = parseFloat(req.query.lat) || DEFAULT_LAT;
+      const lon = parseFloat(req.query.lon) || DEFAULT_LON;
+      const radiusKm = parseFloat(req.query.radius) || 50;
+      const limit = parseInt(req.query.limit, 10) || 6;
+
+      console.log(`[India Dataset API] Live search near (${lat}, ${lon}), radius: ${radiusKm}km`);
+
+      const nearbyHospitals = await githubDatasetService.findNearbyFromDataset(lat, lon, radiusKm, limit);
+
+      res.status(200).json({
+        status: 'success',
+        source: 'Official Tamil Nadu & India Live Datasets (GitHub)',
+        searchCoordinates: { latitude: lat, longitude: lon },
+        searchRadiusKm: radiusKm,
+        count: nearbyHospitals.length,
+        data: nearbyHospitals
+      });
+    } catch (error) {
+      console.error('[India Dataset API] Error:', error.message);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to retrieve official dataset hospitals',
+        error: error.message
+      });
+    }
+  });
+
+  /**
+   * POST /api/location/browser
+   * Receives exact coordinates from HTML5 navigator.geolocation
+   * Returns reverse geocoded location address and nearest hospitals
+   */
+  app.post('/api/location/browser', async (req, res) => {
+    try {
+      const lat = parseFloat(req.body.latitude);
+      const lon = parseFloat(req.body.longitude);
+      const accuracy = req.body.accuracy ? parseFloat(req.body.accuracy) : null;
+      const radius = parseInt(req.body.radius, 10) || DEFAULT_RADIUS;
+      const limit = parseInt(req.body.limit, 10) || 6;
+
+      if (isNaN(lat) || isNaN(lon)) {
+        return res.status(400).json({
+          status: 'fail',
+          message: 'Invalid coordinates. Please provide numeric latitude and longitude.'
+        });
+      }
+
+      console.log(`[Browser Geo] Received location: (${lat}, ${lon}) with accuracy ${accuracy}m`);
+
+      let addressDetails = null;
+      try {
+        addressDetails = await osmService.reverseGeocode(lat, lon);
+      } catch (e) {
+        console.warn('[Browser Geo] Reverse geocode warning:', e.message);
+      }
+
+      let osmHospitals = [];
+      try {
+        osmHospitals = await osmService.fetchNearbyHospitals(lat, lon, radius, limit);
+      } catch (e) {
+        console.warn('[Browser Geo] OSM warning:', e.message);
+      }
+
+      let datasetHospitals = [];
+      try {
+        datasetHospitals = await githubDatasetService.findNearbyFromDataset(lat, lon, radius / 1000, limit);
+      } catch (e) {
+        console.warn('[Browser Geo] Dataset warning:', e.message);
+      }
+
+      res.status(200).json({
+        status: 'success',
+        source: 'HTML5 Browser Geolocation API',
+        browserCoordinates: { latitude: lat, longitude: lon, accuracyMeters: accuracy },
+        resolvedAddress: addressDetails ? addressDetails.displayName : null,
+        addressComponents: addressDetails ? addressDetails.address : null,
+        nearbyHospitals: {
+          openStreetMap: { count: osmHospitals.length, data: osmHospitals },
+          officialDataset: { count: datasetHospitals.length, data: datasetHospitals }
+        }
+      });
+    } catch (error) {
+      console.error('[Browser Geo] Error:', error.message);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to process browser geolocation coordinates',
+        error: error.message
+      });
+    }
+  });
+
+  /**
+   * GET /api/network-info
+   * Discovers local IP address for multi-device connection (Doctor & Patient devices)
+   */
+  app.get('/api/network-info', (_req, res) => {
+    const interfaces = os.networkInterfaces();
+    let localIp = '127.0.0.1';
+
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name]) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          localIp = iface.address;
+          break;
+        }
+      }
+    }
+
+    res.status(200).json({
+      status: 'success',
+      localIp,
+      httpPort: 3000,
+      httpsPort: 3443,
+      urls: {
+        localHttp: `http://localhost:3000/teleconsult.html`,
+        localHttps: `https://localhost:3443/teleconsult.html`,
+        deviceHttp: `http://${localIp}:3000/teleconsult.html`,
+        deviceHttps: `https://${localIp}:3443/teleconsult.html`
+      }
+    });
   });
 
   // 3. MedLexicon Routes

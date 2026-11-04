@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nearby Hospitals - HTML5 Browser Geolocation</title>
+  <style>
+    :root {
+      --primary: #0284c7;
+      --primary-hover: #0369a1;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --success: #16a34a;
+      --tag-govt: #dcfce7;
+      --tag-govt-text: #15803d;
+      --tag-pvt: #e0f2fe;
+      --tag-pvt-text: #0369a1;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      padding: 24px 16px;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      color: var(--primary);
+      margin-bottom: 8px;
+    }
+
+    header p {
+      color: var(--text-muted);
+      font-size: 1rem;
+    }
+
+    .geo-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      text-align: center;
+    }
+
+    .btn {
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      font-size: 1rem;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.2s ease;
+    }
+
+    .btn:hover {
+      background-color: var(--primary-hover);
+    }
+
+    .btn:disabled {
+      background-color: #94a3b8;
+      cursor: not-allowed;
+    }
+
+    .location-badge {
+      display: inline-block;
+      margin-top: 14px;
+      padding: 6px 14px;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1e40af;
+      border-radius: 9999px;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    .status-msg {
+      margin-top: 10px;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .status-error {
+      color: #dc2626;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin-top: 10px;
+      display: inline-block;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      padding: 8px 16px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 6px;
+    }
+
+    .tab-btn.active {
+      background: #e0f2fe;
+      color: var(--primary);
+    }
+
+    .hospital-list {
+      display: grid;
+      gap: 16px;
+    }
+
+    .hospital-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+    }
+
+    .hospital-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .hospital-name {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .distance-tag {
+      background: #fef3c7;
+      color: #92400e;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      font-size: 0.85rem;
+    }
+
+    .badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .badge-govt {
+      background: var(--tag-govt);
+      color: var(--tag-govt-text);
+    }
+
+    .badge-pvt {
+      background: var(--tag-pvt);
+      color: var(--tag-pvt-text);
+    }
+
+    .address {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    .contact {
+      font-size: 0.9rem;
+      color: #0369a1;
+      font-weight: 500;
+    }
+
+    .bed-info {
+      background: #f1f5f9;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 4px;
+    }
+
+    .actions {
+      margin-top: 6px;
+      display: flex;
+      gap: 10px;
+    }
+
+    .action-link {
+      font-size: 0.85rem;
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .action-link:hover {
+      text-decoration: underline;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+    }
+
+    .loader {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #ffffff;
+      border-radius: 50%;
+      border-top-color: transparent;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🏥 Nearby Healthcare Finder</h1>
+      <p>Powered by <strong>HTML5 Browser Geolocation API</strong> & Live OpenStreetMap / Government Datasets</p>
+    </header>
+
+    <div class="geo-card">
+      <button id="locateBtn" class="btn" onclick="requestBrowserLocation()">
+        <span>📍 Find Hospitals Near My Exact Location</span>
+      </button>
+      <div id="statusMsg" class="status-msg">Click above to allow the browser to detect your exact GPS coordinates</div>
+      <div id="locationBadge" style="display: none;" class="location-badge"></div>
+    </div>
+
+    <div id="resultsContainer" style="display: none;">
+      <div class="tabs">
+        <button id="osmTab" class="tab-btn active" onclick="switchTab('osm')">OpenStreetMap POIs (<span id="osmCount">0</span>)</button>
+        <button id="datasetTab" class="tab-btn" onclick="switchTab('dataset')">Official India/TN Hospitals (<span id="datasetCount">0</span>)</button>
+      </div>
+
+      <div id="osmList" class="hospital-list"></div>
+      <div id="datasetList" class="hospital-list" style="display: none;"></div>
+    </div>
+
+    <div id="emptyState" class="empty-state">
+      <p>No location detected yet. Click the button above to request browser geolocation.</p>
+    </div>
+  </div>
+
+  <script>
+    let currentLat = null;
+    let currentLon = null;
+    let osmResults = [];
+    let datasetResults = [];
+
+    /**
+     * Trigger HTML5 Browser Geolocation API
+     * Uses navigator.geolocation.getCurrentPosition()
+     */
+    function requestBrowserLocation() {
+      const locateBtn = document.getElementById('locateBtn');
+      const statusMsg = document.getElementById('statusMsg');
+      const badge = document.getElementById('locationBadge');
+
+      if (!('geolocation' in navigator)) {
+        statusMsg.innerHTML = '<span class="status-error">HTML5 Geolocation is not supported by your browser.</span>';
+        return;
+      }
+
+      locateBtn.disabled = true;
+      locateBtn.innerHTML = '<span class="loader"></span> Detecting browser location...';
+      statusMsg.textContent = 'Waiting for your permission in the browser prompt...';
+
+      // HTML5 Geolocation API Options
+      const options = {
+        enableHighAccuracy: true, // Use GPS if available on mobile/device
+        timeout: 15000,           // 15 seconds timeout
+        maximumAge: 0             // Do not use a cached position
+      };
+
+      navigator.geolocation.getCurrentPosition(
+        // Success Callback
+        async (position) => {
+          currentLat = position.coords.latitude;
+          currentLon = position.coords.longitude;
+          const accuracy = Math.round(position.coords.accuracy);
+
+          locateBtn.disabled = false;
+          locateBtn.innerHTML = '<span>🔄 Refresh Location & Hospitals</span>';
+          statusMsg.textContent = 'Location acquired successfully via HTML5 Browser API!';
+          
+          badge.style.display = 'inline-block';
+          badge.textContent = `📍 Lat: ${currentLat.toFixed(4)}, Lon: ${currentLon.toFixed(4)} (Accuracy: ~${accuracy}m)`;
+
+          // Fetch hospitals from both datasets using browser coordinates
+          await fetchNearbyHospitals(currentLat, currentLon);
+        },
+        // Error Callback
+        (error) => {
+          locateBtn.disabled = false;
+          locateBtn.innerHTML = '<span>📍 Try Again</span>';
+
+          let errorText = 'Unable to retrieve your location.';
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              errorText = 'Location permission was denied by user. Please allow location access in your browser bar.';
+              break;
+            case error.POSITION_UNAVAILABLE:
+              errorText = 'Location information is unavailable on your device.';
+              break;
+            case error.TIMEOUT:
+              errorText = 'The request to get user location timed out.';
+              break;
+          }
+          statusMsg.innerHTML = `<span class="status-error">${errorText}</span>`;
+        },
+        options
+      );
+    }
+
+    /**
+     * Call the backend API using the browser's exact coordinates
+     */
+    async function fetchNearbyHospitals(lat, lon) {
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('resultsContainer').style.display = 'block';
+
+      // 1. Fetch OpenStreetMap Hospitals
+      try {
+        const osmRes = await fetch(`/api/hospitals?lat=${lat}&lon=${lon}&radius=10000&limit=6`);
+        const osmJson = await osmRes.json();
+        osmResults = osmJson.data || [];
+        document.getElementById('osmCount').textContent = osmResults.length;
+        renderOsmList(osmResults);
+      } catch (err) {
+        console.error('OSM fetch error:', err);
+      }
+
+      // 2. Fetch Official India/TN Dataset Hospitals
+      try {
+        const dsRes = await fetch(`/api/india/hospitals/nearby?lat=${lat}&lon=${lon}&radius=50&limit=6`);
+        const dsJson = await dsRes.json();
+        datasetResults = dsJson.data || [];
+        document.getElementById('datasetCount').textContent = datasetResults.length;
+        renderDatasetList(datasetResults);
+      } catch (err) {
+        console.error('Dataset fetch error:', err);
+      }
+    }
+
+    function renderOsmList(list) {
+      const container = document.getElementById('osmList');
+      if (!list.length) {
+        container.innerHTML = '<div class="empty-state">No hospitals found within 10 km on OpenStreetMap.</div>';
+        return;
+      }
+
+      container.innerHTML = list.map(h => `
+        <div class="hospital-card">
+          <div class="card-header">
+            <div class="hospital-name">${h.name}</div>
+            <div class="distance-tag">${h.distanceKm} km away</div>
+          </div>
+          <div class="meta-row">
+            ${h.operatorType ? `<span class="badge badge-pvt">${h.operatorType}</span>` : ''}
+            ${h.emergencyAvailable ? '<span class="badge badge-govt">Emergency 24/7</span>' : ''}
+          </div>
+          <div class="address">📍 ${h.address}</div>
+          ${h.contact !== 'Not available' ? `<div class="contact">📞 Phone: ${h.contact}</div>` : ''}
+          <div class="actions">
+            <a class="action-link" target="_blank" href="https://www.google.com/maps/search/?api=1&query=${h.location.latitude},${h.location.longitude}">Open in Google Maps →</a>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderDatasetList(list) {
+      const container = document.getElementById('datasetList');
+      if (!list.length) {
+        container.innerHTML = '<div class="empty-state">No hospitals found within 50 km in the official dataset.</div>';
+        return;
+      }
+
+      container.innerHTML = list.map(h => `
+        <div class="hospital-card">
+          <div class="card-header">
+            <div class="hospital-name">${h.name}</div>
+            <div class="distance-tag">${h.distanceKm} km away</div>
+          </div>
+          <div class="meta-row">
+            <span class="badge ${h.category === 'government' ? 'badge-govt' : 'badge-pvt'}">${h.category}</span>
+            <span>📍 ${h.city || h.district}, ${h.state}</span>
+          </div>
+          ${h.helpline !== 'Not available' ? `<div class="contact">📞 Helpline: ${h.helpline}</div>` : ''}
+          ${h.beds ? `
+            <div class="bed-info">
+              ${h.beds.total ? `<span>Total Beds: <strong>${h.beds.total}</strong></span>` : ''}
+              ${h.beds.vacant ? `<span>Vacant: <strong style="color:#16a34a">${h.beds.vacant}</strong></span>` : ''}
+              ${h.beds.oxygenBeds ? `<span>Oxygen: <strong>${h.beds.oxygenBeds}</strong></span>` : ''}
+              ${h.beds.icuBeds ? `<span>ICU: <strong>${h.beds.icuBeds}</strong></span>` : ''}
+            </div>
+          ` : ''}
+          <div class="actions">
+            <a class="action-link" target="_blank" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(h.name + ' ' + (h.city || h.district))}">View Directions →</a>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function switchTab(type) {
+      const osmTab = document.getElementById('osmTab');
+      const dsTab = document.getElementById('datasetTab');
+      const osmList = document.getElementById('osmList');
+      const dsList = document.getElementById('datasetList');
+
+      if (type === 'osm') {
+        osmTab.classList.add('active');
+        dsTab.classList.remove('active');
+        osmList.style.display = 'grid';
+        dsList.style.display = 'none';
+      } else {
+        dsTab.classList.add('active');
+        osmTab.classList.remove('active');
+        osmList.style.display = 'none';
+        dsList.style.display = 'grid';
+      }
+    }
+  </script>
+</body>
+</html>
