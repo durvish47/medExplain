@@ -7,7 +7,7 @@
  * Falls back to embedded mock data when Supabase is unavailable.
  */
 
-import { supabase } from '../config/supabase';
+import { supabase } from '../config/supabase.js';
 
 // ─────────────────────────────────────────────
 // MOCK FALLBACK DATA
@@ -446,7 +446,216 @@ export const insuranceService = {
     return flatPlans;
   },
 
-  getTips: () => MOCK_TIPS,
+  /**
+   * Fetch user details from Supabase (user_insurance_details or user_information_details)
+   */
+  async getUserProfile(userId = null) {
+    if (!supabase) return null;
+    try {
+      let q = supabase.from('user_insurance_details').select('*');
+      if (userId) q = q.eq('user_id', userId);
+      const { data, error } = await q.limit(1);
+      if (!error && data && data.length > 0) return data[0];
+
+      let q2 = supabase.from('user_information_details').select('*');
+      if (userId) q2 = q2.eq('user_id', userId);
+      const { data: d2, error: e2 } = await q2.limit(1);
+      if (!e2 && d2 && d2.length > 0) return d2[0];
+    } catch (e) {
+      console.warn('[insuranceService] getUserProfile notice:', e.message);
+    }
+    return null;
+  },
+
+  /**
+   * Calculates recommendation score, match percentage and rationale.
+   * Higher score = more favorable.
+   */
+  computePlanScore(plan, profiles = []) {
+    const isFamily = profiles.length > 1;
+    const pricing = plan.pricing || {};
+    const benefits = plan.benefits || [];
+    const restrictions = plan.restrictions || [];
+
+    let score = 50; // baseline
+    const reasons = [];
+    const considerations = [];
+
+    // 1. Pricing / Premium Favorability
+    const premium = Number(pricing.base_premium_amount || 0);
+    if (premium === 0) {
+      score += 35;
+      reasons.push('100% subsidized / Zero base annual premium');
+    } else if (premium <= 10000) {
+      score += 26;
+      reasons.push('Affordable premium (₹' + premium.toLocaleString('en-IN') + '/yr)');
+    } else if (premium <= 16000) {
+      score += 18;
+    } else if (premium <= 22000) {
+      score += 10;
+    } else {
+      score += 2;
+      considerations.push('Higher premium (₹' + premium.toLocaleString('en-IN') + '/yr)');
+    }
+
+    // Deductibles
+    const deductible = Number((isFamily ? pricing.family_deductible : pricing.individual_deductible) || 0);
+    if (deductible === 0) {
+      score += 8;
+      reasons.push('Zero deductible before coverage begins');
+    } else if (deductible > 4000) {
+      score -= 4;
+      considerations.push('Deductible of ₹' + deductible.toLocaleString('en-IN') + ' applies');
+    }
+
+    // 2. Benefits Coverage
+    const essentialCount = benefits.filter(b => b.is_essential).length;
+    const totalBenefits = benefits.length;
+    score += Math.min(essentialCount * 5 + totalBenefits * 2, 28);
+
+    if (essentialCount >= 3) {
+      reasons.push('Solid core coverage (' + essentialCount + ' essential benefits)');
+    }
+
+    const benefitNames = benefits.map(b => (b.benefit_name || '').toLowerCase());
+    if (benefitNames.some(b => b.includes('cashless') || b.includes('hospitalization'))) {
+      score += 5;
+      reasons.push('Comprehensive cashless hospitalization cover');
+    }
+    if (benefitNames.some(b => b.includes('restore') || b.includes('secure'))) {
+      score += 5;
+      reasons.push('Includes sum insured restoration benefit');
+    }
+
+    // 3. Network tier
+    const networkTier = (plan.network_size_tier || '').toLowerCase();
+    if (networkTier.includes('extra') || networkTier.includes('xl')) {
+      score += 10;
+      reasons.push('Extra-large hospital network');
+    } else if (networkTier.includes('large')) {
+      score += 7;
+      reasons.push('Large empanelled hospital network');
+    } else if (networkTier.includes('medium')) {
+      score += 4;
+    }
+
+    // 4. Plan Suitability for Family vs Individual
+    const planType = (plan.plan_type || '').toLowerCase();
+    if (isFamily) {
+      if (planType.includes('family') || planType.includes('floater')) {
+        score += 22;
+        reasons.push('Dedicated family floater structure');
+      } else if (planType.includes('individual/family')) {
+        score += 15;
+        reasons.push('Flexible individual & family options');
+      } else {
+        score -= 10;
+        considerations.push('Plan primarily structured for individual coverage');
+      }
+    } else {
+      if (planType.includes('individual')) {
+        score += 14;
+        reasons.push('Optimized cost and coverage for single individuals');
+      }
+    }
+
+    // 5. Health & Lifestyle Risk Assessment
+    let totalSmokers = 0;
+    let totalDrinkers = 0;
+    let seniorCount = 0;
+
+    profiles.forEach(p => {
+      if (p.is_smoker) totalSmokers++;
+      if (p.is_drinker) totalDrinkers++;
+      if (p.date_of_birth) {
+        const birth = new Date(p.date_of_birth);
+        if (!isNaN(birth.getTime())) {
+          const age = new Date().getFullYear() - birth.getFullYear();
+          if (age >= 55) seniorCount++;
+        }
+      }
+    });
+
+    const totalRisks = totalSmokers + totalDrinkers + seniorCount;
+    if (totalRisks > 0) {
+      const restrictionDesc = restrictions.map(r => (r.description || '').toLowerCase());
+      const hasLongWaiting = restrictionDesc.some(d => d.includes('3 year') || d.includes('4 year'));
+      if (hasLongWaiting) {
+        score -= 8;
+        considerations.push('Extended waiting period for pre-existing conditions');
+      } else {
+        score += 5;
+        reasons.push('Balanced waiting period policy for health conditions');
+      }
+
+      if (totalSmokers > 0 || totalDrinkers > 0) {
+        considerations.push('Lifestyle factors accounted for ' + (totalSmokers + totalDrinkers) + ' member(s)');
+      }
+    } else {
+      score += 6;
+      reasons.push('High eligibility approval rate based on healthy profile');
+    }
+
+    // Restrictions impact
+    score -= restrictions.length * 3;
+
+    // Match percentage representation (clamped 40-99%)
+    const matchPct = Math.min(Math.max(Math.round(score), 40), 99);
+
+    return {
+      score: matchPct,
+      matchPct,
+      reasons: reasons.slice(0, 3),
+      considerations: considerations.slice(0, 2),
+    };
+  },
+
+  /**
+   * Returns sorted list of plans (most favorable to least favorable).
+   * @param {object} params
+   * @param {object} params.userProfile Single person or primary policyholder details
+   * @param {Array<object>} [params.familyProfiles=[]] Family members (optional)
+   * @returns {Promise<Array<object>>}
+   */
+  async getRecommendations({ userProfile, familyProfiles = [] } = {}) {
+    const profile = userProfile || {
+      full_name: 'Policyholder',
+      date_of_birth: '1995-01-01',
+      height_cm: 170,
+      weight_kg: 68,
+      is_smoker: false,
+      is_drinker: false,
+    };
+
+    const profiles = [profile, ...familyProfiles];
+
+    let providers = await fetchProvidersFromSupabase();
+    if (!providers) providers = MOCK_PROVIDERS;
+
+    const scoredPlans = [];
+    providers.forEach(prov => {
+      (prov.plans || []).forEach(plan => {
+        const evaluation = this.computePlanScore(plan, profiles);
+        scoredPlans.push({
+          ...plan,
+          provider_name: prov.provider_name,
+          provider_type: prov.type || 'private',
+          contact_info: prov.contact_info,
+          logo_url: prov.logo_url,
+          score: evaluation.score,
+          matchPct: evaluation.matchPct,
+          reasons: evaluation.reasons,
+          considerations: evaluation.considerations,
+        });
+      });
+    });
+
+    // Sort descending by score: most favorable first
+    scoredPlans.sort((a, b) => b.score - a.score);
+    return scoredPlans;
+  },
+
+    getTips: () => MOCK_TIPS,
 };
 
 export default insuranceService;
