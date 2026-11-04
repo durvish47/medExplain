@@ -18,7 +18,24 @@ const DEFAULT_PROFILE = {
   age: '',
   gender: '',
   emergencyContactName: '',
-  emergencyContactPhone: ''
+  emergencyContactPhone: '',
+  // Role and onboarding profile fields
+  role: '',
+  dob: '',
+  govt_id: '',
+  occupation: '',
+  height: '',
+  weight: '',
+  is_smoker: null,
+  is_drinker: null,
+  // Doctor-specific fields
+  reg_number: '',
+  state_medical_council: '',
+  speciality: '',
+  yoe: '',
+  highest_qualification: '',
+  hospital: '',
+  availability: '',
 };
 
 const DEFAULT_PREFERENCES = {
