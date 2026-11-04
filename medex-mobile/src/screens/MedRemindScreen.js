@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -71,6 +71,11 @@ export const MedRemindScreen = () => {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summarySaving, setSummarySaving] = useState(false);
   const [summaryModalVisible, setSummaryModalVisible] = useState(false);
+  const [calendarTokens, setCalendarTokens] = useState(null);
+  const [calendarBusy, setCalendarBusy] = useState(false);
+  const [calendarError, setCalendarError] = useState('');
+  const calendarStateRef = useRef('');
+  const calendarPopupRef = useRef(null);
   
   // Custom medicine modal
   const [modalVisible, setModalVisible] = useState(false);
@@ -94,6 +99,58 @@ export const MedRemindScreen = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  const backendBase = async () => {
+    const settings=await storageService.getSettings();
+    return Platform.OS==='web' ? (settings.backendUrl && !settings.backendUrl.includes('10.0.2.2') ? settings.backendUrl : 'http://localhost:3000') : (settings.backendUrl || 'http://10.0.2.2:3000');
+  };
+  const exchangeCalendarCode = async (code,state) => {
+    if(!code || !state || state!==calendarStateRef.current) return;
+    setCalendarBusy(true); setCalendarError('');
+    try {
+      const base=await backendBase();
+      const response=await fetch(`${base}/api/auth/google/exchange`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
+      const result=await response.json();
+      if(!response.ok || !result.success || !result.tokens?.refresh_token) throw new Error(result.message||'Google did not return offline calendar access. Try connecting again.');
+      setCalendarTokens(result.tokens); calendarStateRef.current='';
+      Alert.alert('Calendar connected','Google Calendar is connected for this app session. Scanned medicine reminders will only be added after you confirm them.');
+    } catch(e){setCalendarError(e.message); Alert.alert('Calendar sign-in failed',e.message);} finally{setCalendarBusy(false);}
+  };
+  useEffect(()=>{
+    if(Platform.OS==='web'){
+      const onMessage=(event)=>{const expectedOrigin=calendarPopupRef.current?.origin;if(event.data?.type==='MEDEX_GOOGLE_CALENDAR' && event.origin===expectedOrigin) exchangeCalendarCode(event.data.code,event.data.state);};
+      globalThis.addEventListener?.('message',onMessage);
+      return ()=>globalThis.removeEventListener?.('message',onMessage);
+    }
+    const onUrl=({url})=>{const query=url.split('?')[1]||'';const params=new URLSearchParams(query);if(url.startsWith('medex://calendar-auth')) exchangeCalendarCode(params.get('code'),params.get('state'));};
+    const listener=Linking.addEventListener('url',onUrl);
+    Linking.getInitialURL().then(url=>url&&onUrl({url}));
+    return ()=>listener.remove();
+  },[]);
+
+  const connectGoogleCalendar = async () => {
+    setCalendarBusy(true);setCalendarError('');
+    const state=`medex-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+    calendarStateRef.current=state;
+    try {
+      let popup=null;
+      if(Platform.OS==='web' && globalThis.window){popup=globalThis.window.open('about:blank','medex-google-calendar','width=520,height=700');if(!popup)throw new Error('Allow pop-ups for MedEx, then try again.');calendarPopupRef.current={window:popup,origin:new URL(await backendBase()).origin};}
+      const base=await backendBase();
+      const response=await fetch(`${base}/api/auth/google/url?state=${encodeURIComponent(state)}`);
+      const result=await response.json();
+      if(!response.ok || !result.authUrl) throw new Error(result.message||'Google Calendar sign-in is not configured.');
+      if(popup) popup.location.href=result.authUrl; else await Linking.openURL(result.authUrl);
+    } catch(e){calendarStateRef.current='';if(calendarPopupRef.current?.window)calendarPopupRef.current.window.close();calendarPopupRef.current=null;setCalendarError(e.message);Alert.alert('Google Calendar',e.message);}
+    finally{setCalendarBusy(false);}
+  };
+  const scheduleMedicinesInCalendar = async () => {
+    if(!calendarTokens){Alert.alert('Connect Google Calendar','Connect your account first to add reminders to Google Calendar.');return;}
+    if(!allMedicines.length){Alert.alert('No medicines','Add or scan medicines before scheduling reminders.');return;}
+    Alert.alert('Review before scheduling','Have you checked every medicine name, strength, dose, and timing against the original prescription?',[
+      {text:'Review first',style:'cancel'},
+      {text:'I reviewed them',onPress:async()=>{setCalendarBusy(true);try{const response=await fetch(`${await backendBase()}/api/prescriptions/schedule`,{method:'POST',headers:{'Content-Type':'application/json','x-google-refresh-token':calendarTokens.refresh_token},body:JSON.stringify({medicines:allMedicines,timeZone:'Asia/Kolkata',...mealTimings})});const result=await response.json();if(!response.ok||!result.success)throw new Error(result.message||'Calendar reminders could not be created.');Alert.alert('Calendar reminders',result.message||'Reminders were added to Google Calendar.');}catch(e){Alert.alert('Could not schedule',e.message);}finally{setCalendarBusy(false);}}}
+    ]);
+  };
 
   const loadData = async () => {
     const p = await storageService.getPrescriptions();
@@ -281,7 +338,14 @@ export const MedRemindScreen = () => {
     setCheckupModalVisible(false);
     setDocName('');
     setClinicName('');
-    Alert.alert('Checkup Scheduled', 'Doctor appointment added to your medical calendar.');
+    if (calendarTokens) {
+      try {
+        const response=await fetch(`${await backendBase()}/api/checkups/schedule`,{method:'POST',headers:{'Content-Type':'application/json','x-google-refresh-token':calendarTokens.refresh_token},body:JSON.stringify({doctorName:chk.doctorName,clinicName:chk.clinicName,appointmentDateTime:`${chk.date}T10:00:00`,timeZone:'Asia/Kolkata',notes:chk.notes})});
+        const result=await response.json();
+        if(!response.ok||!result.success) throw new Error(result.message||'Calendar sync failed.');
+        Alert.alert('Checkup Scheduled','Appointment saved on this device and added to Google Calendar.');
+      } catch(e) { Alert.alert('Saved on this device',`The appointment was saved locally, but Google Calendar sync failed: ${e.message}`); }
+    } else Alert.alert('Checkup Scheduled', 'Doctor appointment saved on this device. Connect Google Calendar to sync it there.');
   };
 
   const openVisitSummary = async (visit) => {
@@ -357,6 +421,11 @@ export const MedRemindScreen = () => {
       />
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+        <View style={styles.calendarCard}>
+          <View style={{flex:1}}><Text style={styles.calendarTitle}>Google Calendar</Text><Text style={styles.calendarCaption}>{calendarTokens?'Connected for this session':'Connect to add medicine reminders after reviewing your schedule.'}</Text></View>
+          <TouchableOpacity disabled={calendarBusy} style={styles.calendarButton} onPress={calendarTokens?scheduleMedicinesInCalendar:connectGoogleCalendar}><Text style={styles.calendarButtonText}>{calendarBusy?'Please wait…':calendarTokens?'Schedule reminders':'Connect Google'}</Text></TouchableOpacity>
+          {!!calendarError && <Text style={styles.calendarError}>{calendarError}</Text>}
+        </View>
         {/* Prescription Scanner Banner */}
         <View style={styles.scanBanner}>
           <View style={styles.scanTextArea}>
@@ -379,7 +448,7 @@ export const MedRemindScreen = () => {
         {loading && (
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.loadingText}>Reading Prescription & Scheduling Alarms...</Text>
+            <Text style={styles.loadingText}>Reading your prescription…</Text>
           </View>
         )}
 
@@ -672,6 +741,12 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     paddingBottom: 40
   },
+  calendarCard:{backgroundColor:'#EFF8FF',borderColor:'#BFDBFE',borderWidth:1,borderRadius:borderRadius.md,padding:spacing.md,marginBottom:spacing.md,flexDirection:'row',alignItems:'center',flexWrap:'wrap'},
+  calendarTitle:{fontSize:15,fontWeight:'800',color:colors.primaryDark},
+  calendarCaption:{fontSize:12,color:colors.textSecondary,marginTop:3,paddingRight:spacing.sm},
+  calendarButton:{backgroundColor:colors.primary,borderRadius:borderRadius.sm,paddingHorizontal:12,paddingVertical:10,marginTop:spacing.xs},
+  calendarButtonText:{fontSize:12,fontWeight:'700',color:colors.textWhite},
+  calendarError:{fontSize:12,color:colors.danger,width:'100%',marginTop:spacing.xs},
   addMedHeaderBtn: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,8 +1,9 @@
 /**
  * InsuranceScreen.js
- * Top-level Insurance screen with two sub-menu tabs:
- *   1. Providers  — list of providers + plans from Supabase
- *   2. Compare    — side-by-side plan comparison tool
+ * Top-level Insurance screen with three sub-menu tabs:
+ *   1. Providers            — list of providers + plans from Supabase
+ *   2. Compare Plans        — side-by-side plan comparison tool
+ *   3. Smart Recommendation — personalized plan suggestions (Ownself & Family)
  */
 
 import React, { useState } from 'react';
@@ -12,21 +13,29 @@ import { Header } from '../components/Header';
 import { Ionicons } from '@expo/vector-icons';
 import { ProvidersTab } from './insurance/ProvidersTab';
 import { CompareTab }   from './insurance/CompareTab';
+import { SmartRecommendationTab } from './insurance/SmartRecommendationTab';
 
 const TABS = [
   {
-    key:      'providers',
-    label:    'Providers',
-    icon:     'business-outline',
+    key:       'providers',
+    label:     'Providers',
+    icon:      'business-outline',
     iconActive:'business',
-    desc:     'Browse & explore insurance providers',
+    desc:      'Browse & explore insurance providers',
   },
   {
-    key:      'compare',
-    label:    'Compare Plans',
-    icon:     'git-compare-outline',
+    key:       'compare',
+    label:     'Compare Plans',
+    icon:      'git-compare-outline',
     iconActive:'git-compare',
-    desc:     'Side-by-side plan comparison',
+    desc:      'Side-by-side plan comparison',
+  },
+  {
+    key:       'recommend',
+    label:     'Smart Recommendation',
+    icon:      'sparkles-outline',
+    iconActive:'sparkles',
+    desc:      'Personalized plan suggestions',
   },
 ];
 
@@ -63,9 +72,9 @@ export const InsuranceScreen = () => {
               <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
                 {tab.label}
               </Text>
-              {tab.key === 'compare' && (
+              {tab.key === 'recommend' && (
                 <View style={styles.newBadge}>
-                  <Text style={styles.newBadgeText}>NEW</Text>
+                  <Text style={styles.newBadgeText}>AI</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -75,7 +84,13 @@ export const InsuranceScreen = () => {
 
       {/* Tab content */}
       <View style={styles.content}>
-        {activeTab === 'providers' ? <ProvidersTab /> : <CompareTab />}
+        {activeTab === 'providers' ? (
+          <ProvidersTab />
+        ) : activeTab === 'compare' ? (
+          <CompareTab />
+        ) : (
+          <SmartRecommendationTab />
+        )}
       </View>
     </View>
   );
@@ -112,16 +127,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   tabLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: colors.textSecondary,
+    textAlign: 'center',
   },
   tabLabelActive: {
     color: colors.textWhite,
     fontWeight: '800',
   },
   newBadge: {
-    backgroundColor: colors.warning,
+    backgroundColor: colors.accent || '#8B5CF6',
     paddingHorizontal: 5,
     paddingVertical: 2,
     borderRadius: borderRadius.full,

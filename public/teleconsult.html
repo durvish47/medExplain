@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rural Teleconsultation - Resilient 1-on-1 Agora Video</title>
+  <!-- Agora Web SDK v4 -->
+  <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
+  <style>
+    :root {
+      --primary: #0284c7;
+      --primary-hover: #0369a1;
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface-light: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --danger: #ef4444;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --border: #334155;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+
+    .tag-rural {
+      background: #0369a1;
+      color: #e0f2fe;
+      font-size: 0.75rem;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      font-weight: 600;
+    }
+
+    .network-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: var(--surface-light);
+      border-radius: 8px;
+      font-size: 0.85rem;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--success);
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+      gap: 16px;
+    }
+
+    /* Setup Bar */
+    .setup-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .input-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    label {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    input, select {
+      background: var(--surface-light);
+      border: 1px solid var(--border);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      outline: none;
+    }
+
+    input:focus, select:focus {
+      border-color: var(--primary);
+    }
+
+    .btn {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 9px 18px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s ease;
+    }
+
+    .btn:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-danger {
+      background: var(--danger);
+    }
+
+    .btn-danger:hover {
+      background: #dc2626;
+    }
+
+    .btn:disabled {
+      background: #475569;
+      cursor: not-allowed;
+    }
+
+    /* Video Stage Grid */
+    .video-stage {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+      min-height: 440px;
+    }
+
+    .video-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 280px;
+    }
+
+    .video-player {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    .video-overlay {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(4px);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      z-index: 10;
+    }
+
+    .stream-quality-tag {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(4px);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      z-index: 10;
+      color: #38bdf8;
+    }
+
+    .placeholder-state {
+      text-align: center;
+      color: var(--text-muted);
+      z-index: 5;
+    }
+
+    /* Status Notifications */
+    .alert-banner {
+      background: #451a03;
+      border: 1px solid #b45309;
+      color: #fed7aa;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      display: none;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .alert-banner.active {
+      display: flex;
+    }
+
+    /* Controls Bar */
+    .controls-bar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .btn-circle {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: none;
+      background: var(--surface-light);
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      transition: background 0.2s ease;
+    }
+
+    .btn-circle.off {
+      background: var(--danger);
+    }
+
+    .btn-circle:hover {
+      filter: brightness(1.2);
+    }
+
+    /* Resilience Info Card */
+    .resilience-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 20px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .resilience-card strong {
+      color: #38bdf8;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>🩺 MedExplain Teleconsultation</h1>
+      <span class="tag-rural">Rural Network Resilient (Agora WebRTC)</span>
+    </div>
+    <div class="network-badge">
+      <div id="networkDot" class="dot"></div>
+      <span id="networkText">Network: Idle</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Room / Setup Bar -->
+    <div class="setup-panel">
+      <div class="input-group">
+        <label for="roomInput">Consultation Room:</label>
+        <input type="text" id="roomInput" value="rural-teleconsult-1" placeholder="e.g. clinic-room-101">
+
+        <label for="roleSelect">Role:</label>
+        <select id="roleSelect">
+          <option value="patient">Patient (Rural Clinic)</option>
+          <option value="doctor">Doctor (Specialist)</option>
+        </select>
+      </div>
+
+      <div class="input-group">
+        <button id="joinBtn" class="btn" onclick="joinCall()">
+          <span>📞 Start Consultation</span>
+        </button>
+        <button id="leaveBtn" class="btn btn-danger" onclick="leaveCall()" disabled>
+          <span>✕ End Call</span>
+        </button>
+        <button id="deviceBtn" class="btn" onclick="toggleDeviceShare()" style="background: #334155; border-color: #475569;">
+          <span>📱 Connect 2nd Device</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Multi-Device Connection Panel -->
+    <div id="deviceSharePanel" style="display: none; background: #1e293b; border: 1px solid #0284c7; border-radius: 12px; padding: 16px; margin-top: 12px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <h3 style="color: #38bdf8; font-size: 1.05rem; display: flex; align-items: center; gap: 8px;">
+          <span>📱</span> Connect Doctor / Patient on 2nd Device
+        </h3>
+        <button onclick="toggleDeviceShare()" style="background:transparent; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <p style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 12px;">
+        Open this URL on your smartphone or another laptop on your Wi-Fi to establish real 2-device communication:
+      </p>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <input type="text" id="shareUrlInput" readonly style="flex:1; min-width: 250px; padding: 8px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #38bdf8; font-size: 0.85rem; font-family: monospace;">
+        <button class="btn" onclick="copyShareUrl()" style="padding: 8px 14px;">
+          <span id="copyBtnText">📋 Copy Link</span>
+        </button>
+      </div>
+      <div style="margin-top: 10px; font-size: 0.78rem; color: #94a3b8; display:flex; gap:16px; flex-wrap:wrap;">
+        <span>🔒 <strong>Mobile HTTPS:</strong> Camera and Mic access requires HTTPS on mobile browsers.</span>
+        <span>⚡ <strong>Auto-Room:</strong> Automatically matches room and opposite role.</span>
+      </div>
+    </div>
+
+    <!-- Resilience Banner (Shows when Adaptive Bitrate triggers) -->
+    <div id="resilienceAlert" class="alert-banner">
+      <span>⚠️</span>
+      <span id="resilienceAlertText">Network congestion detected. Agora automatically adapted to 144p low-stream mode.</span>
+    </div>
+
+    <!-- Video Stage -->
+    <div class="video-stage">
+      <!-- Local Video (Self) -->
+      <div class="video-card">
+        <div id="localPlayer" class="video-player"></div>
+        <div id="localPlaceholder" class="placeholder-state">
+          <p>📷 Your Video</p>
+          <p style="font-size: 0.8rem; margin-top: 4px;">Click "Start Consultation" to begin</p>
+        </div>
+        <div class="video-overlay"><span id="localLabel">You (Local)</span></div>
+        <div class="stream-quality-tag" id="localQuality">Uplink: Dual-Stream ON</div>
+      </div>
+
+      <!-- Remote Video (Peer) -->
+      <div class="video-card">
+        <div id="remotePlayer" class="video-player"></div>
+        <div id="remotePlaceholder" class="placeholder-state">
+          <p>⏳ Waiting for peer...</p>
+          <p style="font-size: 0.8rem; margin-top: 4px;">Doctor/Patient will appear here upon joining</p>
+        </div>
+        <div class="video-overlay"><span id="remoteLabel">Remote Participant</span></div>
+        <div class="stream-quality-tag" id="remoteQuality">Downlink: Auto-Fallback ON</div>
+      </div>
+    </div>
+
+    <!-- Bottom Controls -->
+    <div class="controls-bar">
+      <button id="micBtn" class="btn-circle" onclick="toggleMic()" title="Mute/Unmute Mic" disabled>🎙️</button>
+      <button id="camBtn" class="btn-circle" onclick="toggleCam()" title="Turn Camera On/Off" disabled>📹</button>
+      <a href="/" class="btn" style="text-decoration:none; margin-left:auto;">
+        <span>🏥 Nearby Hospitals Dashboard →</span>
+      </a>
+    </div>
+
+    <!-- Architecture Explanation Card -->
+    <div class="resilience-card">
+      <strong>⚡ Zero-Manual Network Logic Architecture:</strong> 
+      This WebRTC client connects through Agora PaaS with <strong>Dual-Stream Mode</strong> enabled. 
+      Local video transmits both standard resolution and a low-bitrate <strong>144p stream</strong> (160x120 @ 45kbps). 
+      When Agora detects downlink packet loss or high jitter typical of 2G/3G rural networks, 
+      it automatically executes <code>setStreamFallbackOption(remoteUid, 2)</code>: dynamically degrading to the 144p stream, 
+      or seamlessly falling back to <strong>audio-only mode</strong> to keep the doctor-patient dialogue alive without disconnects.
+    </div>
+  </main>
+
+  <script>
+    // ============================================
+    // Agora WebRTC Teleconsultation Client
+    // ============================================
+
+    let client = null;
+    let localTracks = {
+      videoTrack: null,
+      audioTrack: null
+    };
+    let remoteUsers = {};
+    let isMicMuted = false;
+    let isCamOff = false;
+
+    /**
+     * Join Agora 1-on-1 Consultation Channel
+     */
+    async function joinCall() {
+      const joinBtn = document.getElementById('joinBtn');
+      const leaveBtn = document.getElementById('leaveBtn');
+      const micBtn = document.getElementById('micBtn');
+      const camBtn = document.getElementById('camBtn');
+      const roomInput = document.getElementById('roomInput');
+      const roleSelect = document.getElementById('roleSelect');
+      const channelName = roomInput.value.trim() || 'rural-teleconsult-1';
+
+      joinBtn.disabled = true;
+      joinBtn.innerHTML = '<span>Connecting...</span>';
+
+      try {
+        // Step 1: Request secure Agora RTC Token from backend
+        const tokenRes = await fetch(`/api/agora/token?channelName=${encodeURIComponent(channelName)}&role=publisher`);
+        if (!tokenRes.ok) {
+          const errText = await tokenRes.text();
+          throw new Error(`Server HTTP ${tokenRes.status}: ${errText.slice(0, 120)}`);
+        }
+        const tokenJson = await tokenRes.json();
+
+        if (tokenJson.status !== 'success') {
+          throw new Error(tokenJson.message || 'Token generation failed');
+        }
+
+        const { token, appId, uid } = tokenJson.data;
+
+        // Step 2: Initialize Agora RTC Client
+        if (typeof AgoraRTC === 'undefined') {
+          throw new Error('Agora Web SDK failed to load. Please check your internet connection.');
+        }
+        // mode: 'rtc' for 1-on-1 calls, codec: 'vp8' (optimal for mobile & browser interoperability)
+        client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+
+        // Step 3: Setup Network & Fallback Event Listeners
+        setupResilienceListeners(client);
+
+        // Step 4: Join Channel
+        await client.join(appId, channelName, token, uid);
+
+        // Step 5: Enable Dual-Stream Mode (High + Low stream)
+        // This allows remote clients on poor networks to receive our 144p stream seamlessly
+        await client.enableDualStream();
+
+        // Step 6: Configure Low-Stream Profile specifically for 2G/3G Rural Bandwidth
+        // 160x120 resolution (144p tier), 15 fps, 45 kbps
+        await client.setLowStreamParameter({
+          width: 160,
+          height: 120,
+          framerate: 15,
+          bitrate: 45
+        });
+
+        // Step 7: Create and publish local Audio & Video tracks
+        localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+          AEC: true, // Acoustic Echo Cancellation
+          ANS: true  // Noise suppression for rural clinic environments
+        });
+
+        localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack({
+          encoderConfig: {
+            width: { max: 640, ideal: 480 },
+            height: { max: 480, ideal: 360 },
+            frameRate: { max: 24, ideal: 15 },
+            bitrateMin: 60,
+            bitrateMax: 300
+          },
+          optimizationMode: "motion" // Prioritize smooth motion over pixel detail under fluctuation
+        });
+
+        // Play local video
+        document.getElementById('localPlaceholder').style.display = 'none';
+        localTracks.videoTrack.play('localPlayer');
+        document.getElementById('localLabel').textContent = `${roleSelect.value === 'doctor' ? 'Dr. You (Specialist)' : 'Patient (You)'}`;
+
+        // Step 8: Publish tracks to Agora PaaS
+        await client.publish([localTracks.audioTrack, localTracks.videoTrack]);
+
+        // Update UI Controls
+        joinBtn.style.display = 'none';
+        leaveBtn.disabled = false;
+        micBtn.disabled = false;
+        camBtn.disabled = false;
+        roomInput.disabled = true;
+        roleSelect.disabled = true;
+
+      } catch (error) {
+        console.error('[Agora] Join Error:', error);
+        alert('Failed to connect to teleconsultation: ' + error.message);
+        joinBtn.disabled = false;
+        joinBtn.innerHTML = '<span>📞 Start Consultation</span>';
+      }
+    }
+
+    /**
+     * Setup Agora Network Resilience & Adaptive Bitrate Listeners
+     */
+    function setupResilienceListeners(client) {
+      // 1. Remote user publishes track
+      client.on('user-published', async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
+
+        // Configure Stream Fallback for this remote user:
+        // Option 2: In poor downlink network, automatically fallback to low stream (144p);
+        // if conditions worsen further, automatically fallback to AUDIO-ONLY!
+        client.setStreamFallbackOption(user.uid, 2);
+
+        if (mediaType === 'video') {
+          document.getElementById('remotePlaceholder').style.display = 'none';
+          user.videoTrack.play('remotePlayer');
+          document.getElementById('remoteLabel').textContent = `Remote Peer (${user.uid})`;
+        }
+
+        if (mediaType === 'audio') {
+          user.audioTrack.play();
+        }
+      });
+
+      // 2. Remote user unpublishes
+      client.on('user-unpublished', (user, mediaType) => {
+        if (mediaType === 'video') {
+          document.getElementById('remotePlaceholder').style.display = 'block';
+        }
+      });
+
+      // 3. Adaptive Stream Fallback Event: Automatically triggered by Agora SDK!
+      client.on('stream-fallback', (uid, isFallbackOrRecover) => {
+        const alertBanner = document.getElementById('resilienceAlert');
+        const alertText = document.getElementById('resilienceAlertText');
+        const remoteTag = document.getElementById('remoteQuality');
+
+        if (isFallbackOrRecover === 'fallback') {
+          // Video degraded to low-stream or audio-only
+          alertBanner.classList.add('active');
+          alertText.textContent = `📶 Unstable network detected: Agora automatically degraded peer video to 144p / audio-only to preserve call.`;
+          remoteTag.textContent = 'Degraded: 144p / Audio';
+          remoteTag.style.color = 'var(--warning)';
+        } else if (isFallbackOrRecover === 'recover') {
+          // Bandwidth recovered
+          alertBanner.classList.remove('active');
+          remoteTag.textContent = 'Restored: Standard HD';
+          remoteTag.style.color = 'var(--success)';
+        }
+      });
+
+      // 4. Live Network Quality Telemetry
+      client.on('network-quality', (stats) => {
+        const dot = document.getElementById('networkDot');
+        const text = document.getElementById('networkText');
+        
+        // stats.downlinkNetworkQuality: 0=Unknown, 1=Excellent, 2=Good, 3=Poor, 4=Bad, 5=Very Bad, 6=Down
+        const quality = stats.downlinkNetworkQuality;
+
+        if (quality === 1 || quality === 2) {
+          dot.style.background = 'var(--success)';
+          text.textContent = 'Network: Excellent / Good';
+        } else if (quality === 3 || quality === 4) {
+          dot.style.background = 'var(--warning)';
+          text.textContent = 'Network: Poor (Adaptive Bitrate Active)';
+        } else if (quality >= 5) {
+          dot.style.background = 'var(--danger)';
+          text.textContent = 'Network: Critical (Audio-Only Fallback)';
+        }
+      });
+
+      // 5. Cross-Device Synchronized Call End: When remote user leaves/ends call, end call here too!
+      client.on('user-left', async (user, reason) => {
+        console.log(`[Agora] Remote participant (${user.uid}) left the room. Reason: ${reason}`);
+        await leaveCall(true); // true = call was ended by the other participant
+      });
+    }
+
+    /**
+     * Mute / Unmute Microphone
+     */
+    async function toggleMic() {
+      if (!localTracks.audioTrack) return;
+      isMicMuted = !isMicMuted;
+      await localTracks.audioTrack.setEnabled(!isMicMuted);
+      const micBtn = document.getElementById('micBtn');
+      micBtn.classList.toggle('off', isMicMuted);
+      micBtn.textContent = isMicMuted ? '🔇' : '🎙️';
+    }
+
+    /**
+     * Turn Camera On / Off
+     */
+    async function toggleCam() {
+      if (!localTracks.videoTrack) return;
+      isCamOff = !isCamOff;
+      await localTracks.videoTrack.setEnabled(!isCamOff);
+      const camBtn = document.getElementById('camBtn');
+      camBtn.classList.toggle('off', isCamOff);
+      camBtn.textContent = isCamOff ? '🚫' : '📹';
+    }
+
+    /**
+     * Leave Channel & Clean Up (Synchronized between both devices)
+     */
+    async function leaveCall(endedByRemote = false) {
+      if (localTracks.audioTrack) {
+        localTracks.audioTrack.stop();
+        localTracks.audioTrack.close();
+        localTracks.audioTrack = null;
+      }
+      if (localTracks.videoTrack) {
+        localTracks.videoTrack.stop();
+        localTracks.videoTrack.close();
+        localTracks.videoTrack = null;
+      }
+
+      if (client) {
+        try {
+          await client.leave();
+        } catch (e) {
+          console.warn('[Agora] Leave error:', e.message);
+        }
+      }
+
+      // Reset UI
+      document.getElementById('localPlayer').innerHTML = '';
+      document.getElementById('remotePlayer').innerHTML = '';
+      document.getElementById('localPlaceholder').style.display = 'block';
+      document.getElementById('remotePlaceholder').style.display = 'block';
+      document.getElementById('joinBtn').style.display = 'inline-flex';
+      document.getElementById('joinBtn').disabled = false;
+      document.getElementById('joinBtn').innerHTML = '<span>📞 Start Consultation</span>';
+      document.getElementById('leaveBtn').disabled = true;
+      document.getElementById('micBtn').disabled = true;
+      document.getElementById('camBtn').disabled = true;
+      document.getElementById('roomInput').disabled = false;
+      document.getElementById('roleSelect').disabled = false;
+      document.getElementById('networkDot').style.background = 'var(--success)';
+      document.getElementById('networkText').textContent = 'Network: Idle';
+      document.getElementById('remoteLabel').textContent = 'Remote Participant';
+      document.getElementById('remoteQuality').textContent = 'Downlink: Auto-Fallback ON';
+      document.getElementById('remoteQuality').style.color = '';
+
+      const banner = document.getElementById('resilienceAlert');
+      const bannerText = document.getElementById('resilienceAlertText');
+
+      if (endedByRemote) {
+        // Show prominent notice that the other side ended the consultation
+        banner.classList.add('active');
+        banner.style.background = 'rgba(239, 68, 68, 0.2)';
+        banner.style.borderColor = '#ef4444';
+        bannerText.innerHTML = '<strong>📞 Call Ended:</strong> The other participant ended the consultation.';
+        setTimeout(() => {
+          banner.classList.remove('active');
+          banner.style.background = '';
+          banner.style.borderColor = '';
+        }, 6000);
+      } else {
+        banner.classList.remove('active');
+      }
+    }
+
+    // ============================================
+    // Cross-Device Multi-Device Connection Logic
+    // ============================================
+    let networkInfo = null;
+
+    async function loadNetworkInfo() {
+      try {
+        const res = await fetch('/api/network-info');
+        if (res.ok) {
+          networkInfo = await res.json();
+          updateShareLink();
+        }
+      } catch (e) {
+        console.warn('Network info unavailable:', e.message);
+      }
+    }
+
+    function updateShareLink() {
+      const room = encodeURIComponent(document.getElementById('roomInput').value.trim() || 'rural-teleconsult-1');
+      const currentRole = document.getElementById('roleSelect').value;
+      const oppositeRole = currentRole === 'doctor' ? 'patient' : 'doctor';
+      const host = networkInfo?.localIp || window.location.hostname;
+      const port = networkInfo?.httpsPort || 3443;
+      
+      // Prefer HTTPS for mobile camera/mic permissions
+      const shareUrl = `https://${host}:${port}/teleconsult.html?room=${room}&role=${oppositeRole}`;
+      const input = document.getElementById('shareUrlInput');
+      if (input) input.value = shareUrl;
+    }
+
+    function toggleDeviceShare() {
+      const panel = document.getElementById('deviceSharePanel');
+      if (panel.style.display === 'none' || !panel.style.display) {
+        updateShareLink();
+        panel.style.display = 'block';
+      } else {
+        panel.style.display = 'none';
+      }
+    }
+
+    function copyShareUrl() {
+      const input = document.getElementById('shareUrlInput');
+      input.select();
+      navigator.clipboard.writeText(input.value);
+      const text = document.getElementById('copyBtnText');
+      text.textContent = '✅ Copied!';
+      setTimeout(() => { text.textContent = '📋 Copy Link'; }, 2000);
+    }
+
+    // Handle incoming URL parameters (e.g. ?room=xyz&role=doctor)
+    window.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('room')) {
+        document.getElementById('roomInput').value = params.get('room');
+      }
+      if (params.has('role')) {
+        document.getElementById('roleSelect').value = params.get('role');
+      }
+      document.getElementById('roomInput').addEventListener('input', updateShareLink);
+      document.getElementById('roleSelect').addEventListener('change', updateShareLink);
+      loadNetworkInfo();
+    });
+  </script>
+</body>
+</html>
