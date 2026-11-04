@@ -9,22 +9,19 @@ const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const demoUsers = new Map();
 
 /**
- * Authentication Service wired to public.users table in Supabase.
- *
- * Schema:
- *   create table public.users (
- *     id serial not null,
- *     email character varying(100) not null,
- *     password_hash character varying(255) null,
- *     role public.user_role not null,
- *     created_at timestamp with time zone null default CURRENT_TIMESTAMP,
- *     constraint users_pkey primary key (id),
- *     constraint users_email_key unique (email)
- *   );
+ * Authentication Service wired directly to Supabase:
+ * 1. Queries and inserts into `public.users` table matching your schema:
+ *    - id (serial)
+ *    - email (varchar 100, unique)
+ *    - password_hash (varchar 255)
+ *    - role (public.user_role: 'patient' | 'doctor')
+ *    - created_at (timestamp)
+ * 2. Simultaneously manages Supabase Auth session (GoTrue) so user tokens
+ *    and RLS sessions are established.
  */
 export const authService = {
   /**
-   * Registers a new user into public.users table.
+   * Registers a new user into public.users table and creates a Supabase Auth session.
    */
   async signUp({ email, password, role = 'patient' }) {
     const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -33,6 +30,7 @@ export const authService = {
 
     const passwordHash = await hashPassword(password);
 
+    // Offline / Demo fallback when EXPO_PUBLIC_SUPABASE_URL is not set
     if (!supabase) {
       await wait(DEMO_LATENCY_MS);
       if (demoUsers.has(normalizedEmail)) {
@@ -50,7 +48,7 @@ export const authService = {
     }
 
     // 1. Check if user already exists in public.users
-    const { data: existing, error: checkError } = await supabase
+    const { data: existing } = await supabase
       .from('users')
       .select('id, email')
       .eq('email', normalizedEmail)
@@ -60,7 +58,20 @@ export const authService = {
       throw new Error('An account with this email already exists. Please log in.');
     }
 
-    // 2. Insert new user into public.users
+    // 2. Also register with Supabase Auth (GoTrue) to establish session
+    try {
+      await supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: {
+          data: { role },
+        },
+      });
+    } catch (authErr) {
+      console.warn('Supabase Auth signUp note:', authErr?.message);
+    }
+
+    // 3. Insert new user record into public.users table
     const { data, error } = await supabase
       .from('users')
       .insert([
@@ -94,7 +105,7 @@ export const authService = {
   },
 
   /**
-   * Verifies credentials against public.users table and returns user with role.
+   * Verifies credentials against public.users table and signs into Supabase Auth.
    */
   async signIn({ email, password }) {
     const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -103,6 +114,7 @@ export const authService = {
 
     const passwordHash = await hashPassword(password);
 
+    // Offline / Demo fallback
     if (!supabase) {
       await wait(DEMO_LATENCY_MS);
       const demoUser = demoUsers.get(normalizedEmail);
@@ -121,7 +133,7 @@ export const authService = {
       return { user: { id: demoUser.id, email: demoUser.email, role: demoUser.role } };
     }
 
-    // Query public.users table
+    // 1. Query public.users table
     const { data: user, error } = await supabase
       .from('users')
       .select('id, email, password_hash, role')
@@ -136,9 +148,19 @@ export const authService = {
       throw new Error('No account found with this email. Please check your email or create an account.');
     }
 
-    // Verify password hash
+    // 2. Verify password hash
     if (user.password_hash && user.password_hash !== passwordHash) {
       throw new Error('Incorrect password. Please try again.');
+    }
+
+    // 3. Establish active Supabase Auth session
+    try {
+      await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+    } catch (authErr) {
+      console.warn('Supabase Auth signIn note:', authErr?.message);
     }
 
     return {
@@ -151,7 +173,7 @@ export const authService = {
   },
 
   /**
-   * Updates user role in public.users.
+   * Updates user role in public.users and in Supabase Auth metadata.
    */
   async updateUserRole({ email, role }) {
     const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -163,6 +185,7 @@ export const authService = {
       return { id: demoUser?.id || 1, email: normalizedEmail, role };
     }
 
+    // 1. Update public.users table
     const { data, error } = await supabase
       .from('users')
       .update({ role })
@@ -172,7 +195,15 @@ export const authService = {
 
     if (error) {
       console.warn('Failed to update role in public.users:', error.message);
-      return null;
+    }
+
+    // 2. Update Supabase Auth user metadata
+    try {
+      await supabase.auth.updateUser({
+        data: { role },
+      });
+    } catch {
+      // Non-blocking
     }
 
     return data;
@@ -197,5 +228,18 @@ export const authService = {
 
     if (error) return true;
     return !data;
+  },
+
+  /**
+   * Signs out from Supabase Auth.
+   */
+  async signOut() {
+    if (supabase) {
+      try {
+        await supabase.auth.signOut();
+      } catch (err) {
+        console.warn('Supabase signOut error:', err?.message);
+      }
+    }
   },
 };
