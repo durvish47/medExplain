@@ -28,8 +28,8 @@ export const LoginScreen = ({ onSuccess, onSwitchToSignup }) => {
 
     setSubmitting(true);
     try {
-      await authService.signIn({ email, password });
-      onSuccess();
+      const result = await authService.signIn({ email, password });
+      onSuccess(result?.user);
     } catch (err) {
       setFormError(err.message || 'Incorrect email or password.');
       setSubmitting(false);

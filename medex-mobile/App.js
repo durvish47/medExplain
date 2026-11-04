@@ -58,8 +58,8 @@ export default function App() {
 
       await storageService.saveUserProfile(profileData);
     } else if (email) {
-      // Login-only flow: at least persist the email
-      await storageService.saveUserProfile({ email });
+      // Login-only flow: persist the email and verified database role
+      await storageService.saveUserProfile({ email, role: role || '' });
     }
 
     setUser(authResult);
