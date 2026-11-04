@@ -1,0 +1,20 @@
+{
+  "name": "healthcare-api",
+  "version": "1.0.0",
+  "description": "Healthcare prototype API with live data from OpenStreetMap and ABDM",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.21.0",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0"
+  }
+}
