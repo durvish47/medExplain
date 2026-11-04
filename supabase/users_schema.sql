@@ -30,3 +30,4 @@ create policy "Allow select for login verification" on public.users
 
 create policy "Allow update of users" on public.users
   for update using (true);
+

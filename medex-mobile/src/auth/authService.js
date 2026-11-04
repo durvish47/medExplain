@@ -1,27 +1,31 @@
 import { supabase } from '../config/supabase';
 import { hashPassword } from './cryptoUtils';
 
-// Simulated network latency used when Supabase isn't configured (demo mode).
-const DEMO_LATENCY_MS = 800;
+// Simulated latency used when Supabase isn't configured (demo mode).
+const DEMO_LATENCY_MS = 600;
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// In-memory demo store for when running offline / without Supabase configured
+// In-memory demo store so signup -> login works seamlessly even without an active DB connection
 const demoUsers = new Map();
 
 /**
- * Authentication Service wired directly to Supabase:
- * 1. Queries and inserts into `public.users` table matching your schema:
- *    - id (serial)
- *    - email (varchar 100, unique)
- *    - password_hash (varchar 255)
- *    - role (public.user_role: 'patient' | 'doctor')
- *    - created_at (timestamp)
- * 2. Simultaneously manages Supabase Auth session (GoTrue) so user tokens
- *    and RLS sessions are established.
+ * Authentication Service wired directly to:
+ * 
+ *   create table public.users (
+ *     id serial not null,
+ *     email character varying(100) not null,
+ *     password_hash character varying(255) null,
+ *     role public.user_role not null,
+ *     created_at timestamp with time zone null default CURRENT_TIMESTAMP,
+ *     constraint users_pkey primary key (id),
+ *     constraint users_email_key unique (email)
+ *   );
+ * 
+ * Users are stored in public.users on signup, and verified against it on login.
  */
 export const authService = {
   /**
-   * Registers a new user into public.users table and creates a Supabase Auth session.
+   * Registers a new user directly into public.users table.
    */
   async signUp({ email, password, role = 'patient' }) {
     const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -30,7 +34,7 @@ export const authService = {
 
     const passwordHash = await hashPassword(password);
 
-    // Offline / Demo fallback when EXPO_PUBLIC_SUPABASE_URL is not set
+    // Offline / Demo fallback when Supabase keys are not configured in .env
     if (!supabase) {
       await wait(DEMO_LATENCY_MS);
       if (demoUsers.has(normalizedEmail)) {
@@ -47,31 +51,18 @@ export const authService = {
       return { user: { id: fakeUser.id, email: fakeUser.email, role: fakeUser.role } };
     }
 
-    // 1. Check if user already exists in public.users
-    const { data: existing } = await supabase
+    // 1. Check if email is already registered in public.users
+    const { data: existing, error: checkError } = await supabase
       .from('users')
       .select('id, email')
-      .eq('email', normalizedEmail)
+      .ilike('email', normalizedEmail)
       .maybeSingle();
 
     if (existing) {
       throw new Error('An account with this email already exists. Please log in.');
     }
 
-    // 2. Also register with Supabase Auth (GoTrue) to establish session
-    try {
-      await supabase.auth.signUp({
-        email: normalizedEmail,
-        password,
-        options: {
-          data: { role },
-        },
-      });
-    } catch (authErr) {
-      console.warn('Supabase Auth signUp note:', authErr?.message);
-    }
-
-    // 3. Insert new user record into public.users table
+    // 2. Insert into public.users
     const { data, error } = await supabase
       .from('users')
       .insert([
@@ -95,6 +86,14 @@ export const authService = {
       throw new Error(error.message || 'We could not create your account. Please try again.');
     }
 
+    // Also cache locally for immediate offline re-login
+    demoUsers.set(normalizedEmail, {
+      id: data.id,
+      email: data.email,
+      password_hash: passwordHash,
+      role: data.role,
+    });
+
     return {
       user: {
         id: data.id,
@@ -105,7 +104,7 @@ export const authService = {
   },
 
   /**
-   * Verifies credentials against public.users table and signs into Supabase Auth.
+   * Logs in by verifying credentials against public.users table.
    */
   async signIn({ email, password }) {
     const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -119,13 +118,7 @@ export const authService = {
       await wait(DEMO_LATENCY_MS);
       const demoUser = demoUsers.get(normalizedEmail);
       if (!demoUser) {
-        return {
-          user: {
-            id: 1,
-            email: normalizedEmail,
-            role: 'patient',
-          },
-        };
+        throw new Error('No account found with this email. Please check your email or create an account.');
       }
       if (demoUser.password_hash && demoUser.password_hash !== passwordHash) {
         throw new Error('Incorrect password. Please try again.');
@@ -133,34 +126,37 @@ export const authService = {
       return { user: { id: demoUser.id, email: demoUser.email, role: demoUser.role } };
     }
 
-    // 1. Query public.users table
+    // 1. Query user from public.users table (case-insensitive email matching)
     const { data: user, error } = await supabase
       .from('users')
       .select('id, email, password_hash, role')
-      .eq('email', normalizedEmail)
+      .ilike('email', normalizedEmail)
       .maybeSingle();
 
     if (error) {
+      // If table query fails, check cached demo user before throwing
+      const cached = demoUsers.get(normalizedEmail);
+      if (cached && cached.password_hash === passwordHash) {
+        return { user: { id: cached.id, email: cached.email, role: cached.role } };
+      }
       throw new Error(error.message || 'Error communicating with database.');
     }
 
     if (!user) {
+      // Check cached user
+      const cached = demoUsers.get(normalizedEmail);
+      if (cached) {
+        if (cached.password_hash !== passwordHash) {
+          throw new Error('Incorrect password. Please try again.');
+        }
+        return { user: { id: cached.id, email: cached.email, role: cached.role } };
+      }
       throw new Error('No account found with this email. Please check your email or create an account.');
     }
 
-    // 2. Verify password hash
+    // 2. Verify hashed password against stored password_hash
     if (user.password_hash && user.password_hash !== passwordHash) {
       throw new Error('Incorrect password. Please try again.');
-    }
-
-    // 3. Establish active Supabase Auth session
-    try {
-      await supabase.auth.signInWithPassword({
-        email: normalizedEmail,
-        password,
-      });
-    } catch (authErr) {
-      console.warn('Supabase Auth signIn note:', authErr?.message);
     }
 
     return {
@@ -173,37 +169,29 @@ export const authService = {
   },
 
   /**
-   * Updates user role in public.users and in Supabase Auth metadata.
+   * Updates user role in public.users table.
    */
   async updateUserRole({ email, role }) {
     const normalizedEmail = String(email || '').trim().toLowerCase();
     if (!normalizedEmail || !role) return null;
 
+    const cached = demoUsers.get(normalizedEmail);
+    if (cached) cached.role = role;
+
     if (!supabase) {
-      const demoUser = demoUsers.get(normalizedEmail);
-      if (demoUser) demoUser.role = role;
-      return { id: demoUser?.id || 1, email: normalizedEmail, role };
+      return { id: cached?.id || 1, email: normalizedEmail, role };
     }
 
-    // 1. Update public.users table
     const { data, error } = await supabase
       .from('users')
       .update({ role })
-      .eq('email', normalizedEmail)
+      .ilike('email', normalizedEmail)
       .select('id, email, role')
       .maybeSingle();
 
     if (error) {
       console.warn('Failed to update role in public.users:', error.message);
-    }
-
-    // 2. Update Supabase Auth user metadata
-    try {
-      await supabase.auth.updateUser({
-        data: { role },
-      });
-    } catch {
-      // Non-blocking
+      return null;
     }
 
     return data;
@@ -223,23 +211,10 @@ export const authService = {
     const { data, error } = await supabase
       .from('users')
       .select('id')
-      .eq('email', normalizedEmail)
+      .ilike('email', normalizedEmail)
       .maybeSingle();
 
     if (error) return true;
     return !data;
-  },
-
-  /**
-   * Signs out from Supabase Auth.
-   */
-  async signOut() {
-    if (supabase) {
-      try {
-        await supabase.auth.signOut();
-      } catch (err) {
-        console.warn('Supabase signOut error:', err?.message);
-      }
-    }
   },
 };

@@ -71,7 +71,7 @@ export default function App() {
     lexicon: <MedLexiconScreen />,
     hospitals: <HospitalsScreen />,
     insurance: <InsuranceScreen />,
-    settings: <SettingsScreen />,
+    settings: <SettingsScreen onLogout={() => setUser(null)} />,
   };
 
   // Show the auth + onboarding flow before the main app

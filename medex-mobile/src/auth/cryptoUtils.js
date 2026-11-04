@@ -93,3 +93,4 @@ export async function hashPassword(password) {
 
   return fallbackSha256(str);
 }
+

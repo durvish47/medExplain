@@ -33,3 +33,4 @@ create policy "Allow select for login verification" on public.users
 -- Allows updating user role or details
 create policy "Allow update of users" on public.users
   for update using (true);
+
