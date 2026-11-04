@@ -104,7 +104,7 @@ export function createApp({ env = process.env, analyzePdf, fetchImpl = globalThi
   app.post('/api/consultations/calls', (req, res) => {
     const patientId = String(req.body?.patientId || '').slice(0, 80);
     if (!patientId) return res.status(400).json({ error: 'Patient ID is required.' });
-    const existing = consultationCalls.find(call => call.patientId === patientId && ['ringing', 'connected'].includes(call.status));
+    const existing = consultationCalls.find(call => call.patientId === patientId && ['ringing', 'accepted'].includes(call.status));
     if (existing) return res.status(200).json({ call: existing });
     const call = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, patientId, patientName: String(req.body.patientName || 'Patient').slice(0, 100), room: `consult-${patientId.replace(/[^a-z0-9-]/gi, '').slice(0, 45)}`, status: 'ringing', createdAt: new Date().toISOString() };
     consultationCalls.unshift(call);
